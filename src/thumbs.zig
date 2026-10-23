@@ -180,12 +180,33 @@ pub const Shared = struct {
         };
     }
 
-    /// The picture's rating and tags, as the user just set them.
+    /// The picture's rating and tags, as the user just set them: the
+    /// file was written first, and the cache follows it.
     pub fn setMeta(s: *Shared, path: []const u8, m: exif.Meta) void {
         s.lock();
         defer s.unlock();
         const entry = s.items.getPtr(path) orelse return;
         entry.meta = m;
+    }
+
+    /// A picture's cache entries move with it when it is renamed: the
+    /// thumbnail and the large one both, so nothing decodes again.
+    pub fn renameKey(s: *Shared, gpa: std.mem.Allocator, old_path: []const u8, new_path: []const u8) void {
+        s.lock();
+        defer s.unlock();
+        moveKey(s, gpa, old_path, new_path);
+        var lb: [8 + 1 + 4096]u8 = undefined;
+        const old_large = std.fmt.bufPrint(&lb, "L:{s}", .{old_path}) catch return;
+        var nb: [8 + 1 + 4096]u8 = undefined;
+        const new_large = std.fmt.bufPrint(&nb, "L:{s}", .{new_path}) catch return;
+        moveKey(s, gpa, old_large, new_large);
+    }
+
+    fn moveKey(s: *Shared, gpa: std.mem.Allocator, old_path: []const u8, new_path: []const u8) void {
+        const kv = s.items.fetchRemove(old_path) orelse return;
+        defer gpa.free(kv.key);
+        const key = gpa.dupe(u8, new_path) catch return;
+        s.items.put(gpa, key, kv.value) catch gpa.free(key);
     }
 
     /// What the picture says about itself, without marking it used.

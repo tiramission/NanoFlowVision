@@ -1,4 +1,4 @@
-//! The app: the tree of folders, the gallery of pictures, and the one shown large.
+//! The app: the tree o folders, the gallery of pictures, and the one shown large.
 
 const std = @import("std");
 const nanoui = @import("nanoui");
@@ -9,6 +9,8 @@ const model = @import("model.zig");
 const scan = @import("scan.zig");
 const thumbs = @import("thumbs.zig");
 const large = @import("large.zig");
+const menu = @import("menu.zig");
+const ops = @import("ops.zig");
 
 /// How much room between and around the pictures.
 const gap: f32 = 8;
@@ -103,6 +105,21 @@ pub const State = struct {
     order_version: u64 = 0,
     /// The version the shown list was built for.
     shown_version: u64 = 0,
+    /// The menu of one picture, and the corner it opens from.
+    menu_for: ?*model.Picture = null,
+    menu_at: ui.Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
+    /// The rename box, for the picture being renamed.
+    renaming: ?*model.Picture = null,
+    rename_field: ui.TextBuffer = .{},
+    /// Whether the gallery lists the folders inside as well.
+    recursive: bool = false,
+    /// The folder changed on disk: it is listed again before the frame.
+    relist_pending: bool = false,
+    /// Where the grid sits in the window, and how far it is scrolled:
+    /// the menu opens at a picture's corner.
+    grid_x: f32 = 0,
+    grid_y: f32 = 0,
+    grid_offset: f32 = 0,
 
     pub fn create(gpa: std.mem.Allocator, io: std.Io, root: []const u8) !*State {
         const s = try gpa.create(State);
@@ -136,42 +153,71 @@ pub const State = struct {
         s.gpa.destroy(s);
     }
 
-    /// The folders inside a folder, read the first time it is opened.
+    /// The folders inside a folder, and its pictures: the pictures of
+    /// the subfolders too, when the gallery is set to take them. A folder
+    /// that is already loaded is left as it is unless a listing is asked
+    /// for, because the tree keeps what the eye opened.
     fn loadChildren(s: *State, folder: *model.Folder) !void {
-        if (folder.loaded) return;
+        if (folder.loaded and !s.relist_pending) return;
+
         var listing = try scan.list(s.gpa, s.io, folder.path);
         defer listing.deinit(s.gpa);
 
-        const children = try s.gpa.alloc(model.Folder, listing.folders.len);
-        for (children) |*child| child.* = .{ .path = &.{}, .name = &.{} };
-        errdefer {
-            for (children) |*child| child.deinit(s.gpa);
-            s.gpa.free(children);
-        }
-        for (listing.folders, 0..) |name, i| {
-            children[i] = .{
+        var children: std.ArrayList(model.Folder) = .empty;
+        errdefer children.deinit(s.gpa);
+        for (listing.folders) |name| {
+            try children.append(s.gpa, .{
                 .path = try model.join(s.gpa, folder.path, name),
                 .name = try s.gpa.dupe(u8, name),
                 .depth = folder.depth + 1,
-            };
+            });
         }
 
-        const pictures = try s.gpa.alloc(model.Picture, listing.pictures.len);
-        for (pictures) |*pic| pic.* = .{ .path = &.{}, .name = &.{} };
-        errdefer {
-            for (pictures) |*pic| pic.deinit(s.gpa);
-            s.gpa.free(pictures);
-        }
-        for (listing.pictures, 0..) |name, i| {
-            pictures[i] = .{
-                .path = try model.join(s.gpa, folder.path, name),
-                .name = try s.gpa.dupe(u8, name),
-            };
+        var pictures: std.ArrayList(model.Picture) = .empty;
+        errdefer pictures.deinit(s.gpa);
+        if (s.recursive) {
+            var paths: std.ArrayList([]u8) = .empty;
+            defer {
+                for (paths.items) |p| s.gpa.free(p);
+                paths.deinit(s.gpa);
+            }
+            try scan.listPictures(s.gpa, s.io, folder.path, true, 8, &paths);
+            for (paths.items) |p| {
+                try pictures.append(s.gpa, .{
+                    .path = try s.gpa.dupe(u8, p),
+                    .name = try s.gpa.dupe(u8, model.nameOf(p)),
+                });
+            }
+        } else {
+            for (listing.pictures) |name| {
+                try pictures.append(s.gpa, .{
+                    .path = try model.join(s.gpa, folder.path, name),
+                    .name = try s.gpa.dupe(u8, name),
+                });
+            }
         }
 
-        folder.children = children;
-        folder.pictures = pictures;
+        // The old goes out, the new goes in.
+        for (folder.children) |*child| child.deinit(s.gpa);
+        s.gpa.free(folder.children);
+        for (folder.pictures) |*p| p.deinit(s.gpa);
+        s.gpa.free(folder.pictures);
+        folder.children = try children.toOwnedSlice(s.gpa);
+        folder.pictures = try pictures.toOwnedSlice(s.gpa);
         folder.loaded = true;
+    }
+
+    /// The folder changed on disk (a picture went to the bin, a paste
+    /// landed): what it holds is read again. The cache keeps what is in
+    /// it -- the pictures that remain are keyed by their paths, which
+    /// did not change.
+    fn relist(s: *State) void {
+        const folder = s.current orelse return;
+        folder.loaded = false;
+        s.loadChildren(folder) catch {};
+        // The pictures the listing brought are measured like any others.
+        for (folder.pictures) |*pic| s.pool.ask(pic.path, pic.path, .measure);
+        s.orderChanged();
     }
 
     /// Shows a folder's pictures.
@@ -196,10 +242,30 @@ pub const State = struct {
 
     /// The sort or the search changed: the order follows, from the top,
     /// and none of it costs a decode -- the cache is keyed by path.
-    fn orderChanged(s: *State) void {
+    pub fn orderChanged(s: *State) void {
         s.order_version += 1;
         s.laid_out_for = 0;
         s.scroll_to_top = true;
+    }
+
+    /// The folder above the one shown.
+    fn goUp(s: *State) void {
+        const current = s.current orelse return;
+        if (current.depth == 0) return;
+        const parent_path = model.parentOf(current.path) orelse return;
+        var found: ?*model.Folder = null;
+        s.findChild(&s.tree, parent_path, &found);
+        if (found) |parent| s.open(parent);
+    }
+
+    fn findChild(s: *State, from: *model.Folder, path: []const u8, found: *?*model.Folder) void {
+        for (from.children) |*child| {
+            if (std.mem.eql(u8, child.path, path)) {
+                found.* = child;
+                return;
+            }
+            s.findChild(child, path, found);
+        }
     }
 
     /// The pictures the gallery shows: the folder's own, filtered by the
@@ -244,26 +310,6 @@ pub const State = struct {
         s.shown_version = s.order_version;
     }
 
-    /// The folder above the one shown.
-    fn goUp(s: *State) void {
-        const current = s.current orelse return;
-        if (current.depth == 0) return;
-        const parent_path = model.parentOf(current.path) orelse return;
-        var found: ?*model.Folder = null;
-        s.findChild(&s.tree, parent_path, &found);
-        if (found) |parent| s.open(parent);
-    }
-
-    fn findChild(s: *State, from: *model.Folder, path: []const u8, found: *?*model.Folder) void {
-        for (from.children) |*child| {
-            if (std.mem.eql(u8, child.path, path)) {
-                found.* = child;
-                return;
-            }
-            s.findChild(child, path, found);
-        }
-    }
-
     /// The pictures' places. Made once their sizes are known, and again when
     /// the window is another width or the order changed: the gallery never
     /// moves under the eye while it stays.
@@ -291,6 +337,10 @@ pub const State = struct {
     }
 
     pub fn view(s: *State, c: *ui.Context) void {
+        if (s.relist_pending) {
+            s.relist_pending = false;
+            s.relist();
+        }
         if (s.large != null) {
             large.view(s, c);
             return;
@@ -314,6 +364,10 @@ pub const State = struct {
         defer ui.end(c);
         ui.text(c, "NanoFlowVision", .{ .size = 15, .weight = .bold });
         ui.label(c, "folders");
+        if (ui.checkbox(c, "Subfolders", &s.recursive)) {
+            if (s.current) |folder| folder.loaded = false;
+            s.relist_pending = true;
+        }
         ui.scroll(c, .{ .width = .fill, .height = .fill, .gap = 2 });
         defer ui.end(c);
         s.viewFolder(c, &s.tree);
@@ -349,6 +403,7 @@ pub const State = struct {
         defer ui.end(c);
         s.viewToolbar(c);
         s.viewGrid(c);
+        menu.view(s, c);
     }
 
     fn viewToolbar(s: *State, c: *ui.Context) void {
@@ -393,6 +448,17 @@ pub const State = struct {
 
     /// The pictures, in columns: only those in view are built.
     fn viewGrid(s: *State, c: *ui.Context) void {
+        // Esc takes the menu or the rename box away; a paste lands the
+        // clipboard's files in this folder.
+        if (c.shortcut(.{ .key = ui.Shortcut.escape })) {
+            if (s.renaming != null) {
+                s.renaming = null;
+                s.rename_field.clear();
+            } else if (s.menu_for != null) {
+                s.menu_for = null;
+            }
+        }
+        if (c.shortcut(.{ .key = 'v', .ctrl = true })) menu.paste(s);
         const id = c.peekId(null);
         _ = c.open(.{
             .direction = .column,
@@ -410,6 +476,9 @@ pub const State = struct {
         const grid_x = if (rect) |r| r.x else 0;
         const grid_y = if (rect) |r| r.y else 0;
         var offset = c.scroll.get(id) orelse 0;
+        s.grid_x = grid_x;
+        s.grid_y = grid_y;
+        s.grid_offset = offset;
 
         // A new folder starts at the top.
         if (s.scroll_to_top) {
@@ -487,10 +556,26 @@ pub const State = struct {
         const th = c.theme;
         const box = ui.div(c).absolute().offset(place.x, place.y).w(place.w).h(place.h).rounded(6);
         defer box.end();
-        if (box.interaction().double_clicked) {
+        const inter = box.interaction();
+        if (inter.double_clicked) {
             large.show(s, pic);
             c.changed = true;
             return;
+        }
+        // The menu's corner, on hover.
+        if (inter.hovered and s.menu_for == null and s.renaming == null) {
+            const corner = ui.div(c).absolute().offset(place.w - 36, 6);
+            defer corner.end();
+            if (ui.button(c, "⋯", .{ .variant = .secondary, .size = 12 }).clicked) {
+                s.menu_for = pic;
+                s.menu_at = .{
+                    .x = s.grid_x + place.x + place.w - 214,
+                    .y = s.grid_y + place.y - s.grid_offset + 44,
+                    .w = 0,
+                    .h = 0,
+                };
+                c.changed = true;
+            }
         }
 
         const cached = s.shared.get(pic.path);

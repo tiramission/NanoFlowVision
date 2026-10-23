@@ -77,6 +77,29 @@ pub fn statFile(io: std.Io, path: []const u8) !std.Io.File.Stat {
     return file.stat(io);
 }
 
+/// The pictures of a folder -- and, when `recursive`, of every folder in
+/// it, as absolute paths. Folders that start with a dot are stepped over.
+pub fn listPictures(gpa: std.mem.Allocator, io: std.Io, path: []const u8, recursive: bool, depth: usize, out: *std.ArrayList([]u8)) !void {
+    var dir = try std.Io.Dir.openDirAbsolute(io, path, .{ .iterate = true });
+    defer dir.close(io);
+    var it = dir.iterate();
+    while (try it.next(io)) |entry| {
+        switch (entry.kind) {
+            .file => if (model.isPicture(entry.name)) {
+                try out.append(gpa, try model.join(gpa, path, entry.name));
+            },
+            .directory => {
+                if (!recursive or depth == 0) continue;
+                if (entry.name.len > 0 and entry.name[0] == '.') continue;
+                const sub = try model.join(gpa, path, entry.name);
+                defer gpa.free(sub);
+                try listPictures(gpa, io, sub, recursive, depth - 1, out);
+            },
+            else => {},
+        }
+    }
+}
+
 test "a name's extension says whether it is a picture" {
     try std.testing.expect(model.isPicture("a.jpg"));
     try std.testing.expect(!model.isPicture("a"));

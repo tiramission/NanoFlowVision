@@ -50,6 +50,22 @@ fn makeSampleWith(gpa: std.mem.Allocator, count: usize) !Sample {
 
 /// Waits until the workers have measured every picture, and the gallery is
 /// laid out.
+/// Waits until every thumbnail of the folder is decoded.
+pub fn waitForThumbs(t: *ui.Tester, state: *app.State) !void {
+    var tries: usize = 0;
+    while (tries < 400) : (tries += 1) {
+        var ready = true;
+        for (state.current.?.pictures) |*pic| {
+            const known = state.shared.get(pic.path);
+            if (known == null or known.?.thumb == null) ready = false;
+        }
+        if (ready and state.current.?.pictures.len > 0) return;
+        std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake) catch {};
+        t.frame();
+    }
+    return error.TooSlow;
+}
+
 pub fn waitForLayout(t: *ui.Tester, state: *app.State) !void {
     var tries: usize = 0;
     while (tries < 400) : (tries += 1) {
