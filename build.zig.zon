@@ -1,0 +1,17 @@
+.{
+    .name = .nanoflowvision,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .nanoui = .{
+            .url = "git+https://github.com/justrach/nanoui.git#f34d980944843a7c3054698d304ba22a5041fc42",
+            .hash = "nanoui-0.6.4-we0KMR_xEAAZx0rueM5FILCpIetrME29nqyxkVPljuOm",
+        },
+        .zigimg = .{
+            .url = "git+https://github.com/zigimg/zigimg.git#083d0304840a3f5fd547c2e2005148a18886c401",
+            .hash = "zigimg-0.1.0-8_eo2j1pGAA3ArMKhXcipNR-tdjmeWmByLJhOff2A_X4",
+        },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "src" },
+    .fingerprint = 0x3ec71862a5fbefd2,
+}
