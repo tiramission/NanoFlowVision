@@ -51,7 +51,9 @@ src/main.zig    the window, and the folder to show
 src/app.zig     the state and its view: tree, gallery, the large picture
 src/model.zig   what a folder holds: folders, pictures
 src/scan.zig    reading folders and files
-src/decode.zig   pictures as pixels: BGRA, premultiplied
+src/decode.zig   pictures as pixels: BGRA, premultiplied; the per-platform dispatch
+src/wic.zig      Windows' decoder: WIC scales while it decodes, from disk
+src/imageio.zig  macOS' decoder: ImageIO, the same way
 src/masonry.zig  where each picture sits: columns of pictures
 src/thumbs.zig   the cache and the workers that fill it
 src/tests.zig    the view, drawn offscreen, and the pictures it decodes
@@ -71,3 +73,10 @@ src/tests.zig    the view, drawn offscreen, and the pictures it decodes
 - The workers (`thumbs.Pool`) read the files in the background and leave the
   answer in a cache both they and the view share. The view never waits: a
   picture that is not ready is drawn as a placeholder.
+- Decoding goes through `decode.decodeFile`: on Windows the picture is scaled
+  while it is decoded by WIC (`src/wic.zig`), on macOS by ImageIO
+  (`src/imageio.zig`), so a 24 MP photograph never sits whole in memory;
+  elsewhere — and wherever the system decoder cannot read a picture — the
+  whole file is read and zigimg makes the thumbnail.
+- While pictures are still on their way, the view asks for another frame
+  (`c.animationFrame()`), so what is drawn follows the state as it arrives.

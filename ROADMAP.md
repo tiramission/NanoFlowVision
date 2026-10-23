@@ -11,7 +11,7 @@
 |---|---|---|
 | 空文件夹 | **75 MB** | 应用自身基线（CPU 渲染器 2560×1600 双缓冲 + 字形图集） |
 | 200 张 1.4 MP | **108 MB** | 阶段 1 之后：多出来的是预取的缩略图（多解了约一屏半） |
-| 8 张 24 MP | **450 MB** | ⚠️ 解码整幅图再缩小，4 个 worker 各吃一张全尺寸 |
+| 8 张 24 MP | 450 MB → **80 MB**（阶段 3） | 之前：解码整幅图再缩小，4 个 worker 各吃一张全尺寸 |
 
 启动到首帧约 250 ms；200 张照片的目录，0.5 秒内视口内全部解码完毕。
 
@@ -23,7 +23,8 @@
 
 **顺序调整**：阶段 3 的调研做完后，结论是**先做阶段 3**——它把每个 worker 的内存开销
 降到 1/4，而且 macOS 那条路已经在 nanoui 里被验证过；做完它，阶段 4（EXIF）也能
-顺便一起拿到元数据。阶段 2（排序与搜索）不依赖任何新东西，随时可以插进来做。
+顺便一起拿到元数据。阶段 3 已于 2026-10-24 落地（WIC 路线，见下）。
+阶段 2（排序与搜索）不依赖任何新东西，随时可以插进来做。
 
 ### 阶段 1 · 把浏览做扎实 ✅
 
@@ -52,44 +53,33 @@
 - 搜索按文件名子串匹配即可，先不上索引（一个目录几千个文件时线性扫足够快）。
 - **验收**：切排序不触发任何重新解码；搜索结果 < 100 ms 出现。
 
-### 阶段 3 · 换掉缩略图解码路径 ✅ 已调研
+### 阶段 3 · 换掉缩略图解码路径 ✅
 
-解决 450 MB 那个问题。这是本项目最大的技术未知。**已经用探针实测过了**。
+解决 450 MB 那个问题。**已实现并实测**（2026-10-24，`feat/stage3`）。
 
-探针在 `tools/wicprobe/`（自己一个包，`cd tools/wicprobe && zig build -Doptimize=ReleaseFast`），
-它用 WIC 和用 zigimg 各解一遍同一张图，打印尺寸、耗时、进程峰值内存和第一个像素。
+**落地的东西**：
 
-**实测（Windows，ReleaseFast，缩略图 256px，中位数，5 次）**：
+- `src/wic.zig` —— Windows 的 WIC，COM vtable 直接声明（约 200 行）。文件留在磁盘上由 WIC 自己读，
+  缩放走在解码里，输出 `32bppPBGRA`（预乘 BGRA，nanoui 纹理零转换）。COM 对象按创建逆序 Release；
+  `CoInitializeEx` 每线程一次（threadlocal）。链接 `ole32` + `windowscodecs`。
+- `src/imageio.zig` —— macOS 的 ImageIO，照 nanoui 自己的 `decodeFit` 写的（约 120 行），走文件 URL，
+  `CGImageSourceCreateThumbnailAtIndex` 边解码边缩放。**只在 macOS 上编译过声明，未实测**——上 Mac 时先跑一遍。
+- `src/decode.zig` 的 `decodeFile` —— 按平台分派：Windows 走 WIC，macOS 走 ImageIO，
+  其余平台（和系统解码器读不了的图）读整文件走 zigimg 兜底。
+- `src/app.zig` —— 视图在还有缩略图没就绪时调用 `c.animationFrame()`（量尺寸阶段和大图加载同理）：
+  状态在路上，帧就得继续来。这是"视图是状态的函数"的一部分。
+- 顺带发现并绕过：nanoui 离屏快照的 `settle` 用的是**模拟时间**（dt=1/60 × 帧数），2 秒预算实际只给
+  几十毫秒真实时间，慢解码赶不上截图。给快照加 `--nanoui-script=live:1`（真实时间泵事件循环+画帧）即可。
 
-| 文件 | 路径 | 耗时 | 峰值内存 |
-|---|---|---|---|
-| JPEG 1 MP | WIC | **16 ms** | **11.8 MB** |
-| JPEG 1 MP | zigimg | 17 ms | 20.4 MB |
-| JPEG 6 MP | WIC | **82 ms** | **26.2 MB** |
-| JPEG 6 MP | zigimg | 112 ms | 93.5 MB |
-| PNG 24 MP | WIC | **32 ms** | **9.1 MB** |
-| PNG 24 MP | zigimg | 103 ms | 100.2 MB |
+**实测（Windows / ReleaseFast / 8 张 24 MP PNG / 离屏快照）**：
 
-**结论**：
-
-- WIC 完胜。24 MP 的图：**100.2 MB → 9.1 MB（11 倍）**，耗时也快 3 倍。
-  它的内存跟着**输出**走，不跟着**输入**走。
-- 两个格式的机制不同：WIC 的 PNG 解码器是一行一行给的，所以 24 MP 也只占 9 MB；
-  WIC 的 JPEG 解码器还是先解出整幅（6 MP 占 26 MB），但比 zigimg 少得多
-  （zigimg 要 4 字节/像素的 RGBA，WIC 要 3 字节/像素的 RGB）。
-- WIC 直接**从磁盘读文件**，连"把整个文件读进内存"这一步都省了。
-- 输出格式是 `GUID_WICPixelFormat32bppPBGRA` —— **预乘 BGRA**，和 nanoui 要的
-  `gpu.Texture.bgra` 一模一样，**一次转换都不用做**。
-- 试过"先缩到 1/2、1/4、1/8 再缩到位"的两步法（用 JPEG 的 DCT 缩放）：**没用**，
-  WIC 的 JPEG 解码器没有走那条路，内存一样。所以不用搞复杂。
-
-**各平台怎么走**：
-
-| 平台 | 办法 | 代价 |
+| 场景 | 之前（zigimg 全图解码） | 现在（WIC） |
 |---|---|---|
-| Windows | WIC：`CreateDecoderFromFilename` → `GetFrame` → `IWICBitmapScaler` → `IWICFormatConverter` | 约 250 行 COM vtable 声明；`ole32` + `windowscodecs` |
-| macOS | ImageIO 的 `CGImageSourceCreateThumbnailAtIndex` + `kCGImageSourceThumbnailMaxPixelSize` | 约 50 行。**nanoui 已经这么做了**（`src/ui/image.zig` 的 `decodeFit`，注释明写 "ImageIO scales while it decodes: no full-size copy is made"），但没有从 `nanoui.ui` 导出，得自己写一遍 |
-| Linux | 没有系统缩略图器 | 只能继续用 zigimg，接受它的内存；或者限制并发 |
+| 8 张 24 MP 的峰值内存 | **450 MB** | **80.0 MB**（应用基线 75 MB） |
+| 单张 24 MP 缩略图解码 | ~103 ms / 100 MB | ~30 ms / ~9 MB |
+
+验收标准"24 MP 峰值 < 150 MB"达标。另做了两个专项验证：4 线程并发锤击 1280 次 WIC 解码零失败；
+`std.Io.Mutex` 五线程百万次进出无一计数错（排查快照伪影时顺手做的）。
 
 **踩过的坑（写代码时一定会遇到）**：
 
@@ -99,17 +89,23 @@
   - `CreateBitmapScaler` / `CreateFormatConverter` 头文件写 1 个参数（只有 out），
     这个**是对的**——按 COM 惯例多传一个 riid 也会崩。
   - 接口名是 `IWICFormatConverter`，不是 `IWICBitmapFormatConverter`。
-  - 头文件在 `ZIGLIB/lib/libc/include/any-windows-any/wincodec.h`，不用另外找。
-- COM 的 vtable 序号 = 基类的方法数 + 自己的方法序号（每个方法 8 字节）。
-  `IWICImagingFactory` 继承 `IUnknown`（3 个），所以 `CreateDecoderFromFilename` 是第 3 个，
-  `CreateFormatConverter` 第 10 个，`CreateBitmapScaler` 第 11 个。
-- `CoInitializeEx(null, COINIT_MULTITHREADED)` 之后才能用 COM；
-  路径要转成 UTF-16 **并带结尾的 0**（`std.unicode.utf8ToUtf16LeAllocZ`）。
-- Zig 0.17 没有 `std.time.Timer` 了，用
-  `std.os.windows.ntdll.RtlQueryPerformanceCounter` / `RtlQueryPerformanceFrequency`。
+- **vtable 结构体必须声明到要调用的最后一个槽位**，中间的方法一个不能省
+  （`IWICImagingFactory` 继承 IUnknown(3)：`CreateDecoderFromFilename`=3、`CreateFormatConverter`=10、
+  `CreateBitmapScaler`=11；`IWICBitmapSource`(8)；Scaler/Converter 的 `Initialize`=8）。
+  声明截断了就会调到错误的槽位——按头文件顺序写全即可。
+- `CoInitializeEx(null, COINIT_MULTITHREADED)` 之后才能用 COM；路径要转 UTF-16 **带结尾 0**
+  （`std.unicode.utf8ToUtf16LeAllocZ`）；COM 对象要按创建的逆序 `Release`（worker 常驻，不释放就是真泄漏）。
+- 探针 `tools/wicprobe/` 留在仓库里，改动解码路径时可以再跑一遍对比。
 
-- **验收**：24 MP 照片的缩略图，峰值内存 < 150 MB（实测 WIC 是 9 MB），解码耗时降到 1/5。
-  顺带：`tools/wicprobe` 留在仓库里，改动解码路径时可以再跑一遍对比。
+**各平台怎么走**：
+
+| 平台 | 办法 | 状态 |
+|---|---|---|
+| Windows | WIC：`CreateDecoderFromFilename` → `GetFrame` → `IWICBitmapScaler` → `IWICFormatConverter` | ✅ |
+| macOS | ImageIO 的 `CGImageSourceCreateThumbnailAtIndex` + `kCGImageSourceThumbnailMaxPixelSize` | 代码就绪，待上机验证 |
+| Linux | 没有系统缩略图器 | zigimg 兜底，接受它的内存 |
+
+（调研阶段的原始实测数据表保留在 git 历史里；探针可随时重跑。）
 
 ### 阶段 4 · 元数据
 
@@ -146,7 +142,7 @@ FlowVision 有、我们还没有的，以及它落在哪个阶段：
 | 瀑布流的 `justified` / `grid` 布局 | 1 ✅ |
 | 排序（名字/大小/时间/EXIF/评分/标签） | 2 |
 | 搜索 | 2 |
-| 缩略图解码路径换掉 | 3 |
+| 缩略图解码路径换掉 | 3 ✅ |
 | EXIF 信息面板 | 4 |
 | 星级评分 | 4 |
 | Finder 标签 | 4 |

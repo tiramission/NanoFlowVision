@@ -21,8 +21,6 @@ pub const thumb_side: u32 = 256;
 pub const large_side: u32 = 2048;
 /// How many files are read at once.
 pub const worker_count: usize = 4;
-/// How large a file may be to be decoded.
-pub const max_file: usize = 256 * 1024 * 1024;
 
 pub const Kind = enum { measure, picture, large };
 
@@ -376,12 +374,7 @@ fn run(pool: *Pool, job: Job, header: []u8) void {
         },
         .picture, .large => {
             const side = if (job.kind == .large) large_side else thumb_side;
-            const bytes = scan.readAll(shared.gpa, shared.io, job.path, .limited(max_file)) catch {
-                shared.setFailed(job.generation, job.key);
-                return;
-            };
-            defer shared.gpa.free(bytes);
-            const pixels = decode.decode(shared.gpa, bytes, side) catch {
+            const pixels = decode.decodeFile(shared.gpa, shared.io, job.path, side) catch {
                 shared.setFailed(job.generation, job.key);
                 return;
             };
@@ -389,7 +382,9 @@ fn run(pool: *Pool, job: Job, header: []u8) void {
         },
     }
     // The view draws again when the picture is ready.
+    std.debug.print("[main-pre] {s}\n", .{job.key});
     nanoui.App.onMain(pool, onMainRedraw);
+    std.debug.print("[main-post] {s}\n", .{job.key});
 }
 
 fn onMainRedraw(ctx: ?*anyopaque) callconv(.c) void {

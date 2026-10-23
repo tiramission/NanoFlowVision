@@ -21,10 +21,11 @@
 - **缓存按最近使用淘汰**，可见的受保护；切文件夹时整个缓存清空（按世代号丢弃迟到的旧结果）。
 
 ## 硬约定
-- 每文件 ≤600 行（沿用 nanoui 的规矩）。当前总量约 1475 行。
+- 每文件 ≤600 行（沿用 nanoui 的规矩）。当前总量约 2200 行（阶段 3 后）。
 - 开发时不弹真实窗口：用 `--nanoui-snapshot` / `ui.Tester` 离屏验证。
-- 图片解码用 [zigimg](https://github.com/zigimg/zigimg)（纯 Zig，同样要 Zig 0.17.0）。
-  nanoui 自己在非 macOS 平台只有 PNG 解码器。
+  **快照慢解码要加 `--nanoui-script=live:1`**（settle 是模拟时间，见 2026-10-24.md）。
+- 图片解码用 [zigimg](https://github.com/zigimg/zigimg)（纯 Zig，同样要 Zig 0.17.0）兜底；
+  Windows 走 WIC（`src/wic.zig`）、macOS 走 ImageIO（`src/imageio.zig`），大图不再整幅进内存。
 - 缓存 key 与文件路径必须分开（大图用 `"L:" ++ path` 做 key，曾因此让 worker 崩溃）。
 
 ## Zig 0.17 的坑
@@ -36,5 +37,5 @@
   `ui.Shortcut.escape` 要写全名；`ui.Tester.scroll` **负 dy 才是往下滚**。
 
 ## 验证方式
-`zig build test`（13 个测试）、`zig-out/bin/nanoflowvision.exe <目录> --nanoui-snapshot=out.png --nanoui-wait=2`。
-截图存在 `docs/`。详细调研与踩坑记录见 `.workbuddy/memory/2026-10-23.md`。
+`zig build test`（19 个测试）、`zig-out/bin/nanoflowvision.exe <目录> --nanoui-snapshot=out.png --nanoui-wait=1 --nanoui-script=live:1`。
+截图存在 `docs/`。详细调研与踩坑记录见 `.workbuddy/memory/2026-10-23.md` 和 `2026-10-24.md`。

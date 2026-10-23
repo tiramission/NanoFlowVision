@@ -309,6 +309,9 @@ pub const State = struct {
         // gallery does not move under the eye as they are measured.
         const measured = s.shared.measuredCount();
         if (measured < pictures.len) {
+            // The workers are on the headers: another frame is wanted as
+            // soon as they answer, so the wait is drawn.
+            c.animationFrame();
             ui.label(c, c.print("measuring {d} of {d}…", .{ measured, pictures.len }));
             return;
         }
@@ -330,6 +333,7 @@ pub const State = struct {
 
         s.first_picture = null;
         s.built = 0;
+        var waiting: usize = 0;
         for (pictures, 0..) |*pic, i| {
             const place = s.layout.placements[i];
             const top = place.y - offset;
@@ -338,6 +342,9 @@ pub const State = struct {
             // The thumbnail is asked for now, whether the picture is built
             // this frame or not.
             s.pool.ask(pic.path, pic.path, .picture);
+            if (s.shared.get(pic.path)) |known| {
+                if (known.thumb == null) waiting += 1;
+            } else waiting += 1;
             s.keep.append(s.gpa, pic.path) catch {};
             if (top < -built or bottom > view_h + built) continue;
             if (s.first_picture == null) {
@@ -351,6 +358,10 @@ pub const State = struct {
             s.built += 1;
             s.viewPicture(c, pic, place, i);
         }
+        // While the pictures on their way are still being decoded, another
+        // frame is wanted as soon as each one lands -- the view is a
+        // function of the state, and the state is still arriving.
+        if (waiting > 0) c.animationFrame();
     }
 
     fn viewPicture(s: *State, c: *ui.Context, pic: *model.Picture, place: masonry.Placement, index: usize) void {
@@ -410,6 +421,8 @@ pub const State = struct {
         s.pool.ask(current.pictures[index].path, key, .large);
         const known = s.shared.get(key) orelse return;
         const pixels = known.thumb orelse {
+            // The worker is still on it: another frame as soon as it lands.
+            c.animationFrame();
             ui.text(c, "loading…", .{ .size = 14, .color = th.muted });
             return;
         };

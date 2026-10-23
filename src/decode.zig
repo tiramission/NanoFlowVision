@@ -5,6 +5,7 @@
 //! `decode` turns a whole file into the pixels the renderer samples.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const zigimg = @import("zigimg");
 
 pub const Size = struct {
@@ -141,15 +142,43 @@ pub fn decode(gpa: std.mem.Allocator, bytes: []const u8, max_side: u32) !Pixels 
     return .{ .w = dw, .h = dh, .bgra = out };
 }
 
+/// The most bytes of a file the pure-Zig way will read to decode it.
+pub const max_file: usize = 256 * 1024 * 1024;
+
+/// The picture at `path` as pixels, no longer than `max_side` on its longest
+/// side. Where the platform has a system decoder -- Windows' WIC, macOS'
+/// ImageIO -- the picture is scaled while it is decoded, and the file is
+/// never whole in memory; elsewhere, and wherever the system decoder cannot
+/// read a picture, the whole file is read and zigimg makes the thumbnail.
+pub fn decodeFile(gpa: std.mem.Allocator, io: std.Io, path: []const u8, max_side: u32) !Pixels {
+    if (builtin.os.tag == .windows) {
+        const wic = @import("wic.zig");
+        if (wic.decodeFile(gpa, path, max_side)) |pixels| return pixels else |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => {}, // the system decoder does not know this picture
+        }
+    }
+    if (builtin.os.tag == .macos) {
+        const imageio = @import("imageio.zig");
+        if (imageio.decodeFile(gpa, path, max_side)) |pixels| return pixels else |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => {},
+        }
+    }
+    const bytes = try @import("scan.zig").readAll(gpa, io, path, .limited(max_file));
+    defer gpa.free(bytes);
+    return decode(gpa, bytes, max_side);
+}
+
 test "a JPEG's size comes from its header" {
     // A minimal JPEG header: SOI, then a frame header saying 16 by 8.
     const bytes = [_]u8{
-        0xFF, 0xD8,             // SOI
+        0xFF, 0xD8, // SOI
         0xFF, 0xC0, 0x00, 0x11, // SOF0, length 17
-        0x08,                   // precision
-        0x00, 0x08,             // height 8
-        0x00, 0x10,             // width 16
-        0x03,                   // components
+        0x08, // precision
+        0x00, 0x08, // height 8
+        0x00, 0x10, // width 16
+        0x03, // components
     };
     const s = probeSize(&bytes).?;
     try std.testing.expectEqual(@as(u32, 16), s.w);
@@ -160,10 +189,11 @@ test "a JPEG's size comes from its header" {
 test "a PNG's size comes from its header" {
     const bytes = [_]u8{
         0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A,
-        0, 0, 0, 13, 'I', 'H', 'D', 'R',
+        0,    0,   0,   13,  'I',  'H',  'D',  'R',
         0, 0, 0, 4, // width 4
         0, 0, 0, 2, // height 2
-        8, 6, 0, 0, 0,
+        8, 6, 0, 0,
+        0,
     };
     const s = probeSize(&bytes).?;
     try std.testing.expectEqual(@as(u32, 4), s.w);

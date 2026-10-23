@@ -78,6 +78,57 @@ test "a picture is decoded into the pixels the renderer draws" {
     try std.testing.expectEqualSlices(u8, &.{ 0, 0, 255, 255 }, pixels.bgra[0..4]);
 }
 
+test "a file on disk is decoded by the platform's own decoder" {
+    const gpa = std.testing.allocator;
+    var sample = try makeSample(gpa);
+    defer sample.deinit(gpa);
+
+    // The file at rest, decoded the way the workers do it: the platform's
+    // decoder where there is one, zigimg where there is not.
+    const file = try std.fmt.allocPrint(gpa, "{s}/pic-0.png", .{sample.path});
+    defer gpa.free(file);
+    var pixels = try decode.decodeFile(gpa, std.testing.io, file, 256);
+    defer pixels.deinit(gpa);
+    try std.testing.expectEqual(@as(u32, 2), pixels.w);
+    try std.testing.expectEqual(@as(u32, 2), pixels.h);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 0, 255, 255 }, pixels.bgra[0..4]);
+}
+
+test "a picture larger than a thumbnail is scaled while it is decoded" {
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    // A 600 by 400 red picture: wider than a thumbnail's longest side.
+    const w: u32 = 600;
+    const h: u32 = 400;
+    const red = try gpa.alloc(u8, @as(usize, w) * h * 4);
+    defer gpa.free(red);
+    var i: usize = 0;
+    while (i + 3 < red.len) : (i += 4) {
+        red[i] = 0;
+        red[i + 1] = 0;
+        red[i + 2] = 255;
+        red[i + 3] = 255;
+    }
+    const png = try ui.png.encode(gpa, .{ .bytes = red, .width = w, .height = h });
+    defer gpa.free(png);
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "big.png", .data = png });
+
+    const cwd = try std.process.currentPathAlloc(std.testing.io, gpa);
+    defer gpa.free(cwd);
+    const path = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/tmp/{s}/big.png", .{ cwd, tmp.sub_path });
+    defer gpa.free(path);
+
+    var pixels = try decode.decodeFile(gpa, std.testing.io, path, 256);
+    defer pixels.deinit(gpa);
+    try std.testing.expectEqual(@as(u32, 256), pixels.w);
+    try std.testing.expectEqual(@as(u32, 170), pixels.h);
+    // A flat colour, scaled, is itself: premultiplied BGRA, blue first.
+    try std.testing.expectEqualSlices(u8, &.{ 0, 0, 255, 255 }, pixels.bgra[0..4]);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 0, 255, 255 }, pixels.bgra[pixels.bgra.len - 4 ..]);
+}
+
 test "the gallery shows a folder's pictures, decoded in the background" {
     const gpa = std.testing.allocator;
     var sample = try makeSample(gpa);
