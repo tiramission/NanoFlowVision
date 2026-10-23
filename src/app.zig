@@ -12,10 +12,14 @@ const thumbs = @import("thumbs.zig");
 /// How much room between and around the pictures.
 const gap: f32 = 8;
 const padding: f32 = 12;
-/// How many points of pictures to build above and below the window.
-const overscan: f32 = 600;
 /// How many columns the gallery has at most.
 const max_columns: usize = 6;
+/// How far above and below the window pictures are built, in windows.
+const build_margin: f32 = 0.15;
+/// How far ahead the thumbnails are asked for, in windows.
+const prefetch_ahead: f32 = 2.0;
+/// How far behind, in windows: less, because the view came from there.
+const prefetch_behind: f32 = 0.5;
 
 pub const State = struct {
     gpa: std.mem.Allocator,
@@ -30,20 +34,24 @@ pub const State = struct {
     current: ?*model.Folder = null,
     /// Where the pictures sit.
     layout: masonry.Layout = .{},
-    /// The pictures' sizes, as far as they are known.
+    /// The pictures' sizes.
     aspects: []f32 = &.{},
-    /// The change counter the layout was last made at.
-    laid_out_at: u64 = 0,
     /// The width the layout was last made for.
     laid_out_for: f32 = 0,
     /// The picture shown large, if any.
     large: ?usize = null,
     /// The cache key of the picture shown large.
     large_key: ?[]u8 = null,
-    /// The paths on screen, so their thumbnails are kept.
-    visible: std.ArrayList([]const u8) = .empty,
+    /// The paths whose thumbnails are wanted, so the cache keeps them.
+    keep: std.ArrayList([]const u8) = .empty,
     /// Where the first picture on screen was drawn: a test clicks it.
     first_picture: ?ui.Rect = null,
+    /// The offset the gallery was last scrolled to, to know which way it goes.
+    last_offset: f32 = 0,
+    /// How many pictures were built in the last frame.
+    built: usize = 0,
+    /// Whether the gallery must go back to the top.
+    scroll_to_top: bool = false,
 
     pub fn create(gpa: std.mem.Allocator, io: std.Io, root: []const u8) !*State {
         const s = try gpa.create(State);
@@ -60,8 +68,7 @@ pub const State = struct {
             .tree = .{ .path = root_path, .name = root_name },
         };
         try s.pool.start(gpa, io, &s.shared);
-        s.loadChildren(&s.tree) catch {};
-        s.current = &s.tree;
+        s.open(&s.tree);
         return s;
     }
 
@@ -73,7 +80,7 @@ pub const State = struct {
         s.layout.deinit(s.gpa);
         s.gpa.free(s.aspects);
         if (s.large_key) |key| s.gpa.free(key);
-        s.visible.deinit(s.gpa);
+        s.keep.deinit(s.gpa);
         s.gpa.destroy(s);
     }
 
@@ -120,6 +127,16 @@ pub const State = struct {
         s.loadChildren(folder) catch {};
         s.current = folder;
         s.closeLarge();
+        // The cache belongs to this folder now: the answers for the old one
+        // are dropped when they come back.
+        s.shared.clear();
+        s.keep.clearRetainingCapacity();
+        s.laid_out_for = 0;
+        s.last_offset = 0;
+        s.scroll_to_top = true;
+        // Every picture's size is read first, so the layout is made once and
+        // the gallery does not move under the eye as they are measured.
+        for (folder.pictures) |*pic| s.pool.ask(pic.path, pic.path, .measure);
     }
 
     /// The folder above the one shown.
@@ -150,7 +167,8 @@ pub const State = struct {
         }
     }
 
-    /// The pictures' places, made again when their sizes or the width change.
+    /// The pictures' places. Made once their sizes are known, and again when
+    /// the window is another width: the gallery never moves under the eye.
     fn updateLayout(s: *State, width: f32) void {
         const current = s.current orelse return;
         const pictures = current.pictures;
@@ -158,16 +176,11 @@ pub const State = struct {
             s.gpa.free(s.aspects);
             s.aspects = s.gpa.alloc(f32, pictures.len) catch &.{};
         }
-        const changed = s.shared.changeCounter();
-        if (changed == s.laid_out_at and width == s.laid_out_for and s.layout.placements.len == pictures.len) return;
-        s.laid_out_at = changed;
+        if (width == s.laid_out_for and s.layout.placements.len == pictures.len) return;
         s.laid_out_for = width;
 
         for (pictures, 0..) |*pic, i| {
-            s.aspects[i] = 1;
-            if (s.shared.get(pic.path)) |cached| {
-                if (cached.measured) s.aspects[i] = cached.aspect;
-            }
+            s.aspects[i] = s.shared.aspectOf(pic.path) orelse 1;
         }
         const layout = masonry.compute(s.gpa, s.aspects, width, .{
             .columns = max_columns,
@@ -277,20 +290,56 @@ pub const State = struct {
         const view_h = if (rect) |r| r.h else c.size.h;
         const grid_x = if (rect) |r| r.x else 0;
         const grid_y = if (rect) |r| r.y else 0;
-        const offset = c.scroll.get(id) orelse 0;
+        var offset = c.scroll.get(id) orelse 0;
+
+        // A new folder starts at the top.
+        if (s.scroll_to_top) {
+            s.scroll_to_top = false;
+            c.scroll.put(c.gpa, id, 0) catch {};
+            offset = 0;
+        }
+        // Which way the gallery goes: more is asked for in that direction.
+        const going_down = offset >= s.last_offset;
+        s.last_offset = offset;
+
+        const current = s.current orelse return;
+        const pictures = current.pictures;
+
+        // The pictures' sizes come first: the layout is made once, and the
+        // gallery does not move under the eye as they are measured.
+        const measured = s.shared.measuredCount();
+        if (measured < pictures.len) {
+            ui.label(c, c.print("measuring {d} of {d}…", .{ measured, pictures.len }));
+            return;
+        }
 
         s.updateLayout(view_w);
 
         // The room the pictures take, so the grid scrolls.
         _ = c.leaf(.{ .width = .fill, .height = .{ .px = s.layout.height } }, .none, null);
 
-        s.visible.clearRetainingCapacity();
+        // The room the thumbnails are asked for: further than the pictures
+        // are built, so they are ready by the time they come into view.
+        const ahead = view_h * (if (going_down) prefetch_ahead else prefetch_behind);
+        const behind = view_h * (if (going_down) prefetch_behind else prefetch_ahead);
+        const built = view_h * build_margin;
+
+        // The cache gives up what is not wanted, before any of it is used.
+        s.shared.trim(thumbs.budget, s.keep.items);
+        s.keep.clearRetainingCapacity();
+
         s.first_picture = null;
-        const current = s.current orelse return;
-        for (current.pictures, 0..) |*pic, i| {
+        s.built = 0;
+        for (pictures, 0..) |*pic, i| {
             const place = s.layout.placements[i];
-            if (!place.inView(offset - overscan, offset + view_h + overscan)) continue;
-            s.visible.append(s.gpa, pic.path) catch {};
+            const top = place.y - offset;
+            const bottom = place.y + place.h - offset;
+            if (bottom < -behind or top > view_h + ahead) continue;
+            // The thumbnail is asked for now, whether the picture is built
+            // this frame or not.
+            s.pool.ask(pic.path, pic.path, .picture);
+            s.keep.append(s.gpa, pic.path) catch {};
+            if (top < -built or bottom > view_h + built) continue;
             if (s.first_picture == null) {
                 s.first_picture = .{
                     .x = grid_x + place.x,
@@ -299,10 +348,9 @@ pub const State = struct {
                     .h = place.h,
                 };
             }
+            s.built += 1;
             s.viewPicture(c, pic, place, i);
         }
-        // The thumbnails on screen are kept, however old they are.
-        s.shared.trim(s.visible.items);
     }
 
     fn viewPicture(s: *State, c: *ui.Context, pic: *model.Picture, place: masonry.Placement, index: usize) void {
@@ -323,9 +371,7 @@ pub const State = struct {
                 return;
             }
         }
-        // Not ready yet: ask the workers, and show its place.
-        s.pool.ask(pic.path, pic.path, .measure);
-        s.pool.ask(pic.path, pic.path, .picture);
+        // Not ready yet: its place is shown.
         _ = c.leaf(.{ .width = .fill, .height = .fill, .radius = 6, .background = th.surface }, .none, null);
     }
 

@@ -14,6 +14,12 @@
    不解码像素就能算出瀑布流位置 → 视口外的照片一个都不构建。
    `ui.list` 是等高行的 uniform_list，做不到变高瀑布流，必须自己写。
 
+## 布局与浏览（阶段 1 已定）
+- **先量尺寸再布局**：只读文件头量完所有宽高比才开始布局，布局只做一次（宽度变了才重排）。
+  量完前显示 "measuring N of M…"。这样画廊不会在测量陆续到达时跳动。
+- **缩略图按滚动方向预取**：往前 2 屏、往后 0.5 屏。
+- **缓存按最近使用淘汰**，可见的受保护；切文件夹时整个缓存清空（按世代号丢弃迟到的旧结果）。
+
 ## 硬约定
 - 每文件 ≤600 行（沿用 nanoui 的规矩）。当前总量约 1475 行。
 - 开发时不弹真实窗口：用 `--nanoui-snapshot` / `ui.Tester` 离屏验证。
@@ -23,9 +29,11 @@
 
 ## Zig 0.17 的坑
 - 互斥量在 `std.Io`：`std.Io.Mutex.lockUncancelable(io)`、`std.Io.Condition.waitUncancelable(io, &m)`。
-- 睡眠用 `std.Io.sleep(io, .fromMilliseconds(n), .awake)`。
+- 睡眠用 `std.Io.sleep(io, .fromMilliseconds(n), .awake)`（Clock 成员是 real/awake/boot）。
 - Windows 上参数解析用 `std.process.Args.iterateAllocator(args, gpa)`。
-- `std.StringHashMap` 不复制 key → 用 `StringHashMapUnmanaged` 自己持有 key。
+- `std.StringHashMap` 不复制 key、也没有 `.empty` → 用 `StringHashMapUnmanaged` 自己持有 key。
+- nanoui 侧：`c.scroll.put(...)` 可写滚动偏移；`c.rects` 跨帧保留但 `c.node(i).rect` 在 view 里读不到；
+  `ui.Shortcut.escape` 要写全名；`ui.Tester.scroll` **负 dy 才是往下滚**。
 
 ## 验证方式
 `zig build test`（13 个测试）、`zig-out/bin/nanoflowvision.exe <目录> --nanoui-snapshot=out.png --nanoui-wait=2`。
