@@ -23,10 +23,10 @@ const prefetch_ahead: f32 = 2.0;
 const prefetch_behind: f32 = 0.5;
 
 /// What the gallery sorts by.
-pub const SortKey = enum { name, time, size, pixels };
+pub const SortKey = enum { name, time, size, pixels, stars };
 
 /// The words on the sort control, in the order of `SortKey`.
-const sort_labels = [_][]const u8{ "Name", "Date", "Size", "Pixels" };
+const sort_labels = [_][]const u8{ "Name", "Date", "Size", "Pixels", "Stars" };
 
 /// Whether one name goes before another, ignoring the case of the letters.
 fn orderFold(a: []const u8, b: []const u8) std.math.Order {
@@ -96,6 +96,9 @@ pub const State = struct {
     /// The pictures the gallery shows: the folder's own, filtered by the
     /// search and sorted. Pointers into the folder, so nothing is copied.
     shown: []*model.Picture = &.{},
+    /// The tag being typed for the picture shown large.
+    tag_field: ui.TextBuffer = .{},
+    tag_editing: bool = false,
     /// Bumped when the sort or the search changed; the order follows.
     order_version: u64 = 0,
     /// The version the shown list was built for.
@@ -226,6 +229,7 @@ pub const State = struct {
                     .time => std.math.order(sa.mtime, sb.mtime),
                     .size => std.math.order(sa.bytes, sb.bytes),
                     .pixels => std.math.order(sa.pixels, sb.pixels),
+                    .stars => std.math.order(sa.rating, sb.rating),
                 };
                 // Pictures that tie go by their name, whatever the direction.
                 if (order == .eq) return orderFold(a.name, b.name) == .lt;

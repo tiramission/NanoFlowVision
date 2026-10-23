@@ -7,6 +7,12 @@
 
 const std = @import("std");
 
+const xmp_sig = "http://ns.adobe.com/xap/1.0/\x00";
+
+/// How many tags a picture carries, and how long one may be.
+pub const max_tags = 8;
+pub const max_tag_len = 32;
+
 /// The tags the gallery shows. Rationals keep their two halves: they are
 /// shown as they were written (1/250 s, f/2.8), not rounded on the way in.
 pub const Meta = struct {
@@ -26,6 +32,13 @@ pub const Meta = struct {
     focal_den: u32 = 0,
     /// How the picture was held: 1 upright, 6 and 8 turned, 3 upside down.
     orientation: u16 = 1,
+    /// The stars the picture carries, 0 to 5; -1 when it carries none.
+    /// XMP writes 0 for "no stars" and -1 for "rejected"; both read here
+    /// as no rating, and 0 is what gets written when stars are taken away.
+    rating: i8 = -1,
+    tags_n: u8 = 0,
+    tag_lens: [max_tags]u8 = @splat(0),
+    tags: [max_tags][max_tag_len]u8 = undefined,
 
     pub fn makeOf(m: *const Meta) []const u8 {
         return m.make[0..m.make_len];
@@ -39,11 +52,39 @@ pub const Meta = struct {
         return m.date[0..m.date_len];
     }
 
+    pub fn tagOf(m: *const Meta, i: usize) []const u8 {
+        return m.tags[i][0..m.tag_lens[i]];
+    }
+
+    /// Adds a tag, unless it is there already or the room ran out.
+    pub fn addTag(m: *Meta, tag: []const u8) void {
+        const n = @min(tag.len, max_tag_len);
+        if (n == 0) return;
+        for (0..m.tags_n) |i| {
+            if (std.mem.eql(u8, m.tagOf(i), tag[0..n])) return;
+        }
+        if (m.tags_n >= max_tags) return;
+        @memcpy(m.tags[m.tags_n][0..n], tag[0..n]);
+        m.tag_lens[m.tags_n] = @intCast(n);
+        m.tags_n += 1;
+    }
+
+    /// Takes a tag out, by its place.
+    pub fn removeTag(m: *Meta, i: usize) void {
+        if (i >= m.tags_n) return;
+        var j = i;
+        while (j + 1 < m.tags_n) : (j += 1) {
+            m.tags[j] = m.tags[j + 1];
+            m.tag_lens[j] = m.tag_lens[j + 1];
+        }
+        m.tags_n -= 1;
+    }
+
     /// Whether anything at all was found in this picture.
     pub fn empty(m: *const Meta) bool {
         return m.make_len == 0 and m.model_len == 0 and m.date_len == 0 and
             m.exposure_den == 0 and m.aperture_den == 0 and m.iso == 0 and
-            m.focal_den == 0 and m.orientation == 1;
+            m.focal_den == 0 and m.orientation == 1 and m.rating < 0 and m.tags_n == 0;
     }
 };
 
@@ -59,6 +100,42 @@ pub fn parse(bytes: []const u8) ?Meta {
 }
 
 /// Walks a JPEG's markers to its Exif APP1 segment.
+/// Reads what the gallery keeps out of an XMP packet: the stars, from the
+/// attribute or the element it is written as, and the tags out of the
+/// subject bag. Other programs' packets say the same things other ways;
+/// these two cover the common ones.
+pub fn readXmpPacket(pkt: []const u8, meta: *Meta) void {
+    if (findValue(pkt, "xmp:Rating=\"")) |v| {
+        meta.rating = parseSmallInt(v);
+    } else if (findValue(pkt, "<xmp:Rating>")) |v| {
+        meta.rating = parseSmallInt(v);
+    }
+    if (std.mem.indexOf(u8, pkt, "<dc:subject>")) |from| {
+        const subject = pkt[from..];
+        const to = std.mem.indexOf(u8, subject, "</dc:subject>") orelse subject.len;
+        var rest = subject[0..to];
+        while (std.mem.indexOf(u8, rest, "<rdf:li>")) |at| {
+            rest = rest[at + "<rdf:li>".len ..];
+            const end = std.mem.indexOf(u8, rest, "</rdf:li>") orelse break;
+            meta.addTag(std.mem.trim(u8, rest[0..end], " \t\r\n"));
+            rest = rest[end..];
+        }
+    }
+}
+
+/// The bytes that follow a marker, up to the next one of the same kind.
+fn findValue(bytes: []const u8, marker: []const u8) ?[]const u8 {
+    const at = std.mem.indexOf(u8, bytes, marker) orelse return null;
+    const rest = bytes[at + marker.len ..];
+    const stop = std.mem.indexOfScalar(u8, rest, if (marker[marker.len - 1] == '"') '"' else '<') orelse return null;
+    return rest[0..stop];
+}
+
+fn parseSmallInt(bytes: []const u8) i8 {
+    const v = std.fmt.parseInt(i8, std.mem.trim(u8, bytes, " "), 10) catch return -1;
+    return v;
+}
+
 fn parseJpeg(bytes: []const u8) ?Meta {
     var i: usize = 2;
     while (i + 4 <= bytes.len) {
@@ -81,12 +158,19 @@ fn parseJpeg(bytes: []const u8) ?Meta {
         if (len < 2) return null;
         const seg_end = i + 2 + len;
         if (seg_end > bytes.len) return null;
-        // The Exif segment starts with "Exif\0\0"; other APP1s are XMP and
-        // the like, and are stepped over.
+        // The Exif segment starts with "Exif\0\0"; other APP1s are stepped
+        // over -- except an XMP one, which carries the rating and tags.
         if (marker == 0xE1 and i + 10 <= seg_end and
             std.mem.eql(u8, bytes[i + 4 .. i + 10], "Exif\x00\x00"))
         {
             if (parseTiff(bytes[i + 10 .. seg_end])) |meta| return meta;
+        }
+        if (marker == 0xE1 and i + 4 + xmp_sig.len <= seg_end and
+            std.mem.eql(u8, bytes[i + 4 ..][0..xmp_sig.len], xmp_sig))
+        {
+            var meta: Meta = .{};
+            readXmpPacket(bytes[i + 4 + xmp_sig.len .. seg_end], &meta);
+            if (!meta.empty()) return meta;
         }
         i = seg_end;
     }

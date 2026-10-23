@@ -65,6 +65,7 @@ pub const Measured = struct {
     pixels: u64 = 0,
     bytes: u64 = 0,
     mtime: i96 = 0,
+    rating: i8 = -1,
     meta: ?exif.Meta = null,
 };
 
@@ -175,7 +176,16 @@ pub const Shared = struct {
             .pixels = entry.pixels,
             .bytes = entry.bytes,
             .mtime = entry.mtime,
+            .rating = if (entry.meta) |m| m.rating else -1,
         };
+    }
+
+    /// The picture's rating and tags, as the user just set them.
+    pub fn setMeta(s: *Shared, path: []const u8, m: exif.Meta) void {
+        s.lock();
+        defer s.unlock();
+        const entry = s.items.getPtr(path) orelse return;
+        entry.meta = m;
     }
 
     /// What the picture says about itself, without marking it used.

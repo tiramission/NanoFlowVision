@@ -3,6 +3,10 @@ const std = @import("std");
 const nanoui = @import("nanoui");
 const ui = nanoui.ui;
 const app = @import("app.zig");
+
+comptime {
+    _ = @import("tests_meta.zig");
+}
 const decode = @import("decode.zig");
 const thumbs = @import("thumbs.zig");
 const exif = @import("exif.zig");
@@ -46,7 +50,7 @@ fn makeSampleWith(gpa: std.mem.Allocator, count: usize) !Sample {
 
 /// Waits until the workers have measured every picture, and the gallery is
 /// laid out.
-fn waitForLayout(t: *ui.Tester, state: *app.State) !void {
+pub fn waitForLayout(t: *ui.Tester, state: *app.State) !void {
     var tries: usize = 0;
     while (tries < 400) : (tries += 1) {
         const current = state.current orelse return error.NoFolder;
