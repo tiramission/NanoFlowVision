@@ -70,6 +70,13 @@ pub fn readAll(gpa: std.mem.Allocator, io: std.Io, path: []const u8, limit: std.
     return reader.interface.allocRemaining(gpa, limit);
 }
 
+/// A file's size and its last change, for the gallery to sort by.
+pub fn statFile(io: std.Io, path: []const u8) !std.Io.File.Stat {
+    var file = try std.Io.Dir.openFileAbsolute(io, path, .{});
+    defer file.close(io);
+    return file.stat(io);
+}
+
 test "a name's extension says whether it is a picture" {
     try std.testing.expect(model.isPicture("a.jpg"));
     try std.testing.expect(!model.isPicture("a"));

@@ -21,6 +21,40 @@ const prefetch_ahead: f32 = 2.0;
 /// How far behind, in windows: less, because the view came from there.
 const prefetch_behind: f32 = 0.5;
 
+/// What the gallery sorts by.
+pub const SortKey = enum { name, time, size, pixels };
+
+/// The words on the sort control, in the order of `SortKey`.
+const sort_labels = [_][]const u8{ "Name", "Date", "Size", "Pixels" };
+
+/// Whether one name goes before another, ignoring the case of the letters.
+fn orderFold(a: []const u8, b: []const u8) std.math.Order {
+    const n = @min(a.len, b.len);
+    for (0..n) |i| {
+        const ca = std.ascii.toLower(a[i]);
+        const cb = std.ascii.toLower(b[i]);
+        if (ca != cb) return std.math.order(ca, cb);
+    }
+    return std.math.order(a.len, b.len);
+}
+
+/// Whether a name holds the words that were searched for.
+fn matchesFold(name: []const u8, query: []const u8) bool {
+    if (query.len == 0) return true;
+    if (query.len > name.len) return false;
+    for (0..name.len - query.len + 1) |i| {
+        var hit = true;
+        for (query, 0..) |qc, j| {
+            if (std.ascii.toLower(name[i + j]) != std.ascii.toLower(qc)) {
+                hit = false;
+                break;
+            }
+        }
+        if (hit) return true;
+    }
+    return false;
+}
+
 pub const State = struct {
     gpa: std.mem.Allocator,
     io: std.Io,
@@ -39,7 +73,7 @@ pub const State = struct {
     /// The width the layout was last made for.
     laid_out_for: f32 = 0,
     /// The picture shown large, if any.
-    large: ?usize = null,
+    large: ?*model.Picture = null,
     /// The cache key of the picture shown large.
     large_key: ?[]u8 = null,
     /// The paths whose thumbnails are wanted, so the cache keeps them.
@@ -52,6 +86,19 @@ pub const State = struct {
     built: usize = 0,
     /// Whether the gallery must go back to the top.
     scroll_to_top: bool = false,
+    /// What the gallery sorts by, and which way it goes. A name goes A to Z
+    /// first; the rest go newest and largest first.
+    sort: SortKey = .name,
+    sort_ascending: bool = true,
+    /// The words in the search box.
+    search: ui.TextBuffer = .{},
+    /// The pictures the gallery shows: the folder's own, filtered by the
+    /// search and sorted. Pointers into the folder, so nothing is copied.
+    shown: []*model.Picture = &.{},
+    /// Bumped when the sort or the search changed; the order follows.
+    order_version: u64 = 0,
+    /// The version the shown list was built for.
+    shown_version: u64 = 0,
 
     pub fn create(gpa: std.mem.Allocator, io: std.Io, root: []const u8) !*State {
         const s = try gpa.create(State);
@@ -78,6 +125,7 @@ pub const State = struct {
         s.shared.deinit();
         s.tree.deinit(s.gpa);
         s.layout.deinit(s.gpa);
+        s.gpa.free(s.shown);
         s.gpa.free(s.aspects);
         if (s.large_key) |key| s.gpa.free(key);
         s.keep.deinit(s.gpa);
@@ -134,9 +182,61 @@ pub const State = struct {
         s.laid_out_for = 0;
         s.last_offset = 0;
         s.scroll_to_top = true;
+        // A new folder starts unfiltered; the sort stays as it was.
+        s.search.clear();
+        s.orderChanged();
         // Every picture's size is read first, so the layout is made once and
         // the gallery does not move under the eye as they are measured.
         for (folder.pictures) |*pic| s.pool.ask(pic.path, pic.path, .measure);
+    }
+
+    /// The sort or the search changed: the order follows, from the top,
+    /// and none of it costs a decode -- the cache is keyed by path.
+    fn orderChanged(s: *State) void {
+        s.order_version += 1;
+        s.laid_out_for = 0;
+        s.scroll_to_top = true;
+    }
+
+    /// The pictures the gallery shows: the folder's own, filtered by the
+    /// search and sorted by the key. Pointers into the folder's list, so
+    /// the pictures and their paths are neither copied nor changed.
+    fn rebuildOrder(s: *State) void {
+        const folder = s.current orelse return;
+        const query = s.search.text();
+
+        var list: std.ArrayList(*model.Picture) = .empty;
+        defer list.deinit(s.gpa);
+        for (folder.pictures) |*pic| {
+            if (matchesFold(pic.name, query)) {
+                list.append(s.gpa, pic) catch return;
+            }
+        }
+
+        const Ctx = struct {
+            shared: *thumbs.Shared,
+            key: SortKey,
+            ascending: bool,
+            fn lessThan(ctx: @This(), a: *model.Picture, b: *model.Picture) bool {
+                const sa = ctx.shared.measuredOf(a.path) orelse thumbs.Measured{ .aspect = 1 };
+                const sb = ctx.shared.measuredOf(b.path) orelse thumbs.Measured{ .aspect = 1 };
+                const order: std.math.Order = switch (ctx.key) {
+                    .name => orderFold(a.name, b.name),
+                    .time => std.math.order(sa.mtime, sb.mtime),
+                    .size => std.math.order(sa.bytes, sb.bytes),
+                    .pixels => std.math.order(sa.pixels, sb.pixels),
+                };
+                // Pictures that tie go by their name, whatever the direction.
+                if (order == .eq) return orderFold(a.name, b.name) == .lt;
+                return if (ctx.ascending) order == .lt else order == .gt;
+            }
+        };
+        std.mem.sort(*model.Picture, list.items, Ctx{ .shared = &s.shared, .key = s.sort, .ascending = s.sort_ascending }, Ctx.lessThan);
+
+        const shown = s.gpa.dupe(*model.Picture, list.items) catch return;
+        s.gpa.free(s.shown);
+        s.shown = shown;
+        s.shown_version = s.order_version;
     }
 
     /// The folder above the one shown.
@@ -168,7 +268,8 @@ pub const State = struct {
     }
 
     /// The pictures' places. Made once their sizes are known, and again when
-    /// the window is another width: the gallery never moves under the eye.
+    /// the window is another width or the order changed: the gallery never
+    /// moves under the eye while it stays.
     fn updateLayout(s: *State, width: f32) void {
         const current = s.current orelse return;
         const pictures = current.pictures;
@@ -176,13 +277,14 @@ pub const State = struct {
             s.gpa.free(s.aspects);
             s.aspects = s.gpa.alloc(f32, pictures.len) catch &.{};
         }
-        if (width == s.laid_out_for and s.layout.placements.len == pictures.len) return;
+        if (s.shown_version != s.order_version) s.rebuildOrder();
+        if (width == s.laid_out_for and s.layout.placements.len == s.shown.len) return;
         s.laid_out_for = width;
 
-        for (pictures, 0..) |*pic, i| {
+        for (s.shown, 0..) |pic, i| {
             s.aspects[i] = s.shared.aspectOf(pic.path) orelse 1;
         }
-        const layout = masonry.compute(s.gpa, s.aspects, width, .{
+        const layout = masonry.compute(s.gpa, s.aspects[0..s.shown.len], width, .{
             .columns = max_columns,
             .gap = gap,
             .padding = padding,
@@ -192,8 +294,8 @@ pub const State = struct {
     }
 
     pub fn view(s: *State, c: *ui.Context) void {
-        if (s.large) |index| {
-            s.viewLarge(c, index);
+        if (s.large != null) {
+            s.viewLarge(c);
             return;
         }
         ui.row(c, .{ .width = .fill, .height = .fill });
@@ -267,8 +369,28 @@ pub const State = struct {
         if (ui.button(c, "Up", .{ .variant = .ghost, .size = 13 }).clicked) s.goUp();
         if (current) |folder| {
             ui.text(c, folder.name, .{ .size = 14, .weight = .semibold });
-            ui.spacer(c);
-            ui.textf(c, .{ .size = 12, .color = th.muted }, "{d} pictures", .{folder.pictures.len});
+        }
+        ui.spacer(c);
+        // The search: what matches stays, the rest waits its turn.
+        const field = ui.textField(c, &s.search, .{ .placeholder = "Search…", .width = .{ .px = 190 }, .size = 13 });
+        if (field.changed) s.orderChanged();
+        // The sort, and the way it goes.
+        var selected: usize = @backingInt(s.sort);
+        if (ui.segmented(c, &sort_labels, &selected)) {
+            s.sort = @fromBackingInt(@intCast(selected));
+            s.sort_ascending = s.sort == .name;
+            s.orderChanged();
+        }
+        if (ui.button(c, if (s.sort_ascending) "↑" else "↓", .{ .variant = .ghost, .size = 13 }).clicked) {
+            s.sort_ascending = !s.sort_ascending;
+            s.orderChanged();
+        }
+        if (current) |folder| {
+            if (s.shown.len == folder.pictures.len) {
+                ui.textf(c, .{ .size = 12, .color = th.muted }, "{d} pictures", .{folder.pictures.len});
+            } else {
+                ui.textf(c, .{ .size = 12, .color = th.muted }, "{d} of {d} pictures", .{ s.shown.len, folder.pictures.len });
+            }
         }
     }
 
@@ -334,7 +456,7 @@ pub const State = struct {
         s.first_picture = null;
         s.built = 0;
         var waiting: usize = 0;
-        for (pictures, 0..) |*pic, i| {
+        for (s.shown, 0..) |pic, i| {
             const place = s.layout.placements[i];
             const top = place.y - offset;
             const bottom = place.y + place.h - offset;
@@ -356,7 +478,7 @@ pub const State = struct {
                 };
             }
             s.built += 1;
-            s.viewPicture(c, pic, place, i);
+            s.viewPicture(c, pic, place);
         }
         // While the pictures on their way are still being decoded, another
         // frame is wanted as soon as each one lands -- the view is a
@@ -364,12 +486,12 @@ pub const State = struct {
         if (waiting > 0) c.animationFrame();
     }
 
-    fn viewPicture(s: *State, c: *ui.Context, pic: *model.Picture, place: masonry.Placement, index: usize) void {
+    fn viewPicture(s: *State, c: *ui.Context, pic: *model.Picture, place: masonry.Placement) void {
         const th = c.theme;
         const box = ui.div(c).absolute().offset(place.x, place.y).w(place.w).h(place.h).rounded(6);
         defer box.end();
         if (box.interaction().double_clicked) {
-            s.showLarge(index);
+            s.showLarge(pic);
             c.changed = true;
             return;
         }
@@ -387,24 +509,18 @@ pub const State = struct {
     }
 
     /// Shows a picture large.
-    pub fn showLarge(s: *State, index: usize) void {
-        const current = s.current orelse return;
-        if (index >= current.pictures.len) return;
+    pub fn showLarge(s: *State, pic: *model.Picture) void {
         s.closeLarge();
-        const key = thumbs.largeKey(s.gpa, current.pictures[index].path) catch return;
+        const key = thumbs.largeKey(s.gpa, pic.path) catch return;
         s.large_key = key;
-        s.large = index;
-        s.pool.ask(current.pictures[index].path, key, .large);
+        s.large = pic;
+        s.pool.ask(pic.path, key, .large);
     }
 
     /// The picture, large, over a dark room.
-    fn viewLarge(s: *State, c: *ui.Context, index: usize) void {
+    fn viewLarge(s: *State, c: *ui.Context) void {
         const th = c.theme;
-        const current = s.current orelse return;
-        if (index >= current.pictures.len) {
-            s.closeLarge();
-            return;
-        }
+        const pic = s.large orelse return;
         if (c.shortcut(.{ .key = ui.Shortcut.escape })) {
             s.closeLarge();
             return;
@@ -418,7 +534,7 @@ pub const State = struct {
         }
 
         const key = s.large_key orelse return;
-        s.pool.ask(current.pictures[index].path, key, .large);
+        s.pool.ask(pic.path, key, .large);
         const known = s.shared.get(key) orelse return;
         const pixels = known.thumb orelse {
             // The worker is still on it: another frame as soon as it lands.

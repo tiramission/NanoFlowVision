@@ -36,6 +36,12 @@ pub const Cached = struct {
     aspect: f32 = 1,
     /// Whether the header has been read.
     measured: bool = false,
+    /// The picture's own pixels, from its header (w × h).
+    pixels: u64 = 0,
+    /// The file's size on disk.
+    bytes: u64 = 0,
+    /// When the file was last changed.
+    mtime: i96 = 0,
     /// The thumbnail's pixels, once decoded.
     thumb: ?decode.Pixels = null,
     /// Whether a worker is measuring it.
@@ -46,6 +52,16 @@ pub const Cached = struct {
     failed: bool = false,
     /// When it was last used; the least used goes first.
     used: u64 = 0,
+};
+
+/// What a measurement learns about one picture: its shape, its pixels,
+/// its size on disk and its date. The gallery sorts by all of these, and
+/// none of it costs a decode.
+pub const Measured = struct {
+    aspect: f32,
+    pixels: u64 = 0,
+    bytes: u64 = 0,
+    mtime: i96 = 0,
 };
 
 /// What the workers and the view share.
@@ -143,6 +159,21 @@ pub const Shared = struct {
         return entry.aspect;
     }
 
+    /// A picture's measured stats, without marking it used: the sort reads
+    /// these, and a sort must not churn the cache's ages.
+    pub fn measuredOf(s: *Shared, path: []const u8) ?Measured {
+        s.lock();
+        defer s.unlock();
+        const entry = s.items.getPtr(path) orelse return null;
+        if (!entry.measured) return null;
+        return .{
+            .aspect = entry.aspect,
+            .pixels = entry.pixels,
+            .bytes = entry.bytes,
+            .mtime = entry.mtime,
+        };
+    }
+
     /// Whether a worker should be asked for this picture: true when nobody
     /// is on it yet.
     pub fn claim(s: *Shared, path: []const u8, kind: Kind) bool {
@@ -159,14 +190,17 @@ pub const Shared = struct {
         return true;
     }
 
-    /// The picture's size, measured from its header.
-    pub fn setAspect(s: *Shared, gen: u64, path: []const u8, aspect: f32) void {
+    /// The picture's measurements, from its header and its stat.
+    pub fn setMeasured(s: *Shared, gen: u64, path: []const u8, st: Measured) void {
         s.lock();
         defer s.unlock();
         if (gen != s.generation) return; // an answer for a folder left behind
         const entry = s.entryFor(path) orelse return;
         if (entry.measured) return;
-        entry.aspect = aspect;
+        entry.aspect = st.aspect;
+        entry.pixels = st.pixels;
+        entry.bytes = st.bytes;
+        entry.mtime = st.mtime;
         entry.measured = true;
         entry.measuring = false;
         s.measured += 1;
@@ -370,7 +404,14 @@ fn run(pool: *Pool, job: Job, header: []u8) void {
                 shared.setFailed(job.generation, job.key);
                 return;
             };
-            shared.setAspect(job.generation, job.key, size.aspect());
+            // The file's size and date come along, for the sort: one stat
+            // now saves reading the file again for them later.
+            var st: Measured = .{ .aspect = size.aspect(), .pixels = @as(u64, size.w) * size.h };
+            if (scan.statFile(shared.io, job.path)) |file| {
+                st.bytes = file.size;
+                st.mtime = file.mtime.nanoseconds;
+            } else |_| {}
+            shared.setMeasured(job.generation, job.key, st);
         },
         .picture, .large => {
             const side = if (job.kind == .large) large_side else thumb_side;
@@ -382,9 +423,7 @@ fn run(pool: *Pool, job: Job, header: []u8) void {
         },
     }
     // The view draws again when the picture is ready.
-    std.debug.print("[main-pre] {s}\n", .{job.key});
     nanoui.App.onMain(pool, onMainRedraw);
-    std.debug.print("[main-post] {s}\n", .{job.key});
 }
 
 fn onMainRedraw(ctx: ?*anyopaque) callconv(.c) void {

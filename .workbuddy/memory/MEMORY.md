@@ -37,5 +37,5 @@
   `ui.Shortcut.escape` 要写全名；`ui.Tester.scroll` **负 dy 才是往下滚**。
 
 ## 验证方式
-`zig build test`（19 个测试）、`zig-out/bin/nanoflowvision.exe <目录> --nanoui-snapshot=out.png --nanoui-wait=1 --nanoui-script=live:1`。
+`zig build test`（23 个测试）、`zig-out/bin/nanoflowvision.exe <目录> --nanoui-snapshot=out.png --nanoui-wait=1 --nanoui-script=live:1`。
 截图存在 `docs/`。详细调研与踩坑记录见 `.workbuddy/memory/2026-10-23.md` 和 `2026-10-24.md`。
