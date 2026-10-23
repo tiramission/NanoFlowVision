@@ -55,7 +55,9 @@ zig-out/bin/nanoflowvision.exe D:\Photos --nanoui-snapshot=shot.png --nanoui-wai
 
 ## 还没做的
 
-对比 FlowVision，这些还没做：排序、搜索、EXIF 信息面板、星级评分、Finder 标签、视频播放、文件操作（重命名 / 删除）、右键手势、递归浏览、设置面板。
+排序、搜索、EXIF 信息面板、星级评分、Finder 标签、视频播放、文件操作、右键手势、递归浏览、设置面板。
+
+做什么、按什么顺序做，每一步的验收标准，见 [ROADMAP.md](ROADMAP.md)。
 
 ## 协议
 
