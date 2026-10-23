@@ -5,6 +5,7 @@ const ui = nanoui.ui;
 const app = @import("app.zig");
 const decode = @import("decode.zig");
 const thumbs = @import("thumbs.zig");
+const exif = @import("exif.zig");
 
 /// A folder with a red square in it, and where it is.
 const Sample = struct {
@@ -420,4 +421,67 @@ test "scrolling moves the gallery, and the layout stays where it was" {
     }
     try std.testing.expect(state.built > 0);
     try std.testing.expect(found);
+}
+
+test "a picture's exif is read when it is measured, and shows large" {
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    // The bytes a camera writes: SOI, an Exif APP1, just enough of a frame
+    // header for the size to be known, and the end.
+    const f = exif.Fixture.build(.little);
+    var jpeg: [12 + 191 + 15 + 2]u8 = @splat(0);
+    jpeg[0] = 0xFF;
+    jpeg[1] = 0xD8;
+    jpeg[2] = 0xFF;
+    jpeg[3] = 0xE1;
+    const seg: u16 = @intCast(2 + 6 + 191);
+    jpeg[4] = @intCast(seg >> 8);
+    jpeg[5] = @intCast(seg & 0xFF);
+    @memcpy(jpeg[6..12], "Exif\x00\x00");
+    @memcpy(jpeg[12..][0..191], f.bytes[0..191]);
+    var n: usize = 12 + 191;
+    // A frame header saying 16 by 8.
+    jpeg[n] = 0xFF;
+    jpeg[n + 1] = 0xC0;
+    // The frame header: its length, precision 8, 8 by 16, one component.
+    const sof = [_]u8{ 0x00, 0x0B, 0x08, 0x00, 0x08, 0x00, 0x10, 0x01, 0x01, 0x11, 0x00 };
+    @memcpy(jpeg[n + 2 ..][0..sof.len], &sof);
+    n = n + 2 + sof.len;
+    jpeg[n] = 0xFF;
+    jpeg[n + 1] = 0xD9;
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "pic.jpg", .data = jpeg[0 .. n + 2] });
+
+    const cwd = try std.process.currentPathAlloc(std.testing.io, gpa);
+    defer gpa.free(cwd);
+    const path = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/tmp/{s}", .{ cwd, tmp.sub_path });
+    defer gpa.free(path);
+
+    const state = try app.State.create(gpa, std.testing.io, path);
+    defer state.deinit();
+
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600 });
+    defer t.deinit();
+    try waitForLayout(&t, state);
+
+    // The measurements carry the exif, taken from the bytes it already had.
+    const pic_path = state.current.?.pictures[0].path;
+    const meta = state.shared.metaOf(pic_path).?;
+    try std.testing.expectEqualStrings("Canon", meta.makeOf());
+    try std.testing.expectEqual(@as(u32, 200), meta.iso);
+
+    // And the large view says so.
+    t.frame();
+    t.frame();
+    const where = state.first_picture orelse return error.NoPictureOnScreen;
+    t.doubleClick(where.x + where.w / 2, where.y + where.h / 2);
+    t.settle(0.2);
+
+    try std.testing.expect(t.containsText("Canon EOS R5"));
+    try std.testing.expect(t.containsText("ISO 200"));
+    try std.testing.expect(t.containsText("f/2.8"));
+    try std.testing.expect(t.containsText("1/250 s"));
+    try std.testing.expect(t.containsText("2024-01-02 03:04"));
 }

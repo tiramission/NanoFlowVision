@@ -8,6 +8,7 @@ const masonry = @import("masonry.zig");
 const model = @import("model.zig");
 const scan = @import("scan.zig");
 const thumbs = @import("thumbs.zig");
+const large = @import("large.zig");
 
 /// How much room between and around the pictures.
 const gap: f32 = 8;
@@ -174,7 +175,7 @@ pub const State = struct {
     fn open(s: *State, folder: *model.Folder) void {
         s.loadChildren(folder) catch {};
         s.current = folder;
-        s.closeLarge();
+        large.close(s);
         // The cache belongs to this folder now: the answers for the old one
         // are dropped when they come back.
         s.shared.clear();
@@ -259,14 +260,6 @@ pub const State = struct {
         }
     }
 
-    fn closeLarge(s: *State) void {
-        s.large = null;
-        if (s.large_key) |key| {
-            s.gpa.free(key);
-            s.large_key = null;
-        }
-    }
-
     /// The pictures' places. Made once their sizes are known, and again when
     /// the window is another width or the order changed: the gallery never
     /// moves under the eye while it stays.
@@ -295,7 +288,7 @@ pub const State = struct {
 
     pub fn view(s: *State, c: *ui.Context) void {
         if (s.large != null) {
-            s.viewLarge(c);
+            large.view(s, c);
             return;
         }
         ui.row(c, .{ .width = .fill, .height = .fill });
@@ -491,7 +484,7 @@ pub const State = struct {
         const box = ui.div(c).absolute().offset(place.x, place.y).w(place.w).h(place.h).rounded(6);
         defer box.end();
         if (box.interaction().double_clicked) {
-            s.showLarge(pic);
+            large.show(s, pic);
             c.changed = true;
             return;
         }
@@ -506,60 +499,5 @@ pub const State = struct {
         }
         // Not ready yet: its place is shown.
         _ = c.leaf(.{ .width = .fill, .height = .fill, .radius = 6, .background = th.surface }, .none, null);
-    }
-
-    /// Shows a picture large.
-    pub fn showLarge(s: *State, pic: *model.Picture) void {
-        s.closeLarge();
-        const key = thumbs.largeKey(s.gpa, pic.path) catch return;
-        s.large_key = key;
-        s.large = pic;
-        s.pool.ask(pic.path, key, .large);
-    }
-
-    /// The picture, large, over a dark room.
-    fn viewLarge(s: *State, c: *ui.Context) void {
-        const th = c.theme;
-        const pic = s.large orelse return;
-        if (c.shortcut(.{ .key = ui.Shortcut.escape })) {
-            s.closeLarge();
-            return;
-        }
-
-        const back = ui.div(c).sizeFull().bg(th.background);
-        defer back.end();
-        if (back.clicked()) {
-            s.closeLarge();
-            return;
-        }
-
-        const key = s.large_key orelse return;
-        s.pool.ask(pic.path, key, .large);
-        const known = s.shared.get(key) orelse return;
-        const pixels = known.thumb orelse {
-            // The worker is still on it: another frame as soon as it lands.
-            c.animationFrame();
-            ui.text(c, "loading…", .{ .size = 14, .color = th.muted });
-            return;
-        };
-
-        // The picture, as large as the window allows.
-        const room_w = c.size.w - 48;
-        const room_h = c.size.h - 48;
-        const scale = @min(
-            room_w / @as(f32, @floatFromInt(pixels.w)),
-            room_h / @as(f32, @floatFromInt(pixels.h)),
-        );
-        const w = @as(f32, @floatFromInt(pixels.w)) * scale;
-        const h = @as(f32, @floatFromInt(pixels.h)) * scale;
-        const texture = ui.Texture{ .width = pixels.w, .height = pixels.h, .bgra = pixels.bgra };
-        const frame = ui.div(c)
-            .absolute()
-            .offset(@max(0, (c.size.w - w) / 2), @max(0, (c.size.h - h) / 2))
-            .w(w)
-            .h(h)
-            .shadowMd();
-        defer frame.end();
-        _ = ui.texture(c, .{ .width = .fill, .height = .fill }, texture, .{ 0, 0, 1, 1 }, 1);
     }
 };

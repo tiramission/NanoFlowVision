@@ -54,6 +54,8 @@ src/scan.zig    reading folders and files
 src/decode.zig   pictures as pixels: BGRA, premultiplied; the per-platform dispatch
 src/wic.zig      Windows' decoder: WIC scales while it decodes, from disk
 src/imageio.zig  macOS' decoder: ImageIO, the same way
+src/exif.zig     what a picture says about itself: EXIF, from the bytes measurement holds
+src/large.zig    the picture large, with its exif in the corner
 src/masonry.zig  where each picture sits: columns of pictures
 src/thumbs.zig   the cache and the workers that fill it
 src/tests.zig    the view, drawn offscreen, and the pictures it decodes

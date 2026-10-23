@@ -11,6 +11,7 @@
 const std = @import("std");
 const nanoui = @import("nanoui");
 const decode = @import("decode.zig");
+const exif = @import("exif.zig");
 const scan = @import("scan.zig");
 
 /// How many bytes of thumbnails are kept before the oldest are dropped.
@@ -42,6 +43,8 @@ pub const Cached = struct {
     bytes: u64 = 0,
     /// When the file was last changed.
     mtime: i96 = 0,
+    /// What the picture says about itself, if its format carries any of it.
+    meta: ?exif.Meta = null,
     /// The thumbnail's pixels, once decoded.
     thumb: ?decode.Pixels = null,
     /// Whether a worker is measuring it.
@@ -62,6 +65,7 @@ pub const Measured = struct {
     pixels: u64 = 0,
     bytes: u64 = 0,
     mtime: i96 = 0,
+    meta: ?exif.Meta = null,
 };
 
 /// What the workers and the view share.
@@ -174,6 +178,14 @@ pub const Shared = struct {
         };
     }
 
+    /// What the picture says about itself, without marking it used.
+    pub fn metaOf(s: *Shared, path: []const u8) ?exif.Meta {
+        s.lock();
+        defer s.unlock();
+        const entry = s.items.getPtr(path) orelse return null;
+        return entry.meta;
+    }
+
     /// Whether a worker should be asked for this picture: true when nobody
     /// is on it yet.
     pub fn claim(s: *Shared, path: []const u8, kind: Kind) bool {
@@ -201,6 +213,7 @@ pub const Shared = struct {
         entry.pixels = st.pixels;
         entry.bytes = st.bytes;
         entry.mtime = st.mtime;
+        if (st.meta) |m| entry.meta = m;
         entry.measured = true;
         entry.measuring = false;
         s.measured += 1;
@@ -411,6 +424,9 @@ fn run(pool: *Pool, job: Job, header: []u8) void {
                 st.bytes = file.size;
                 st.mtime = file.mtime.nanoseconds;
             } else |_| {}
+            // The first kilobytes carry what the picture says about itself:
+            // the header bytes are already here, so this reads nothing.
+            st.meta = exif.parse(bytes);
             shared.setMeasured(job.generation, job.key, st);
         },
         .picture, .large => {
