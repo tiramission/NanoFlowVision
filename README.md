@@ -4,6 +4,8 @@
 
 # NanoFlowVision
 
+[![CI](https://github.com/tiramission/NanoFlowVision/actions/workflows/ci.yml/badge.svg)](https://github.com/tiramission/NanoFlowVision/actions/workflows/ci.yml)
+
 一个用 [nanoui](https://github.com/justrach/nanoui) 写的图片浏览器：左边是文件夹树，右边是按列排布的瀑布流画廊。Zig 0.17 写成，一个代码库画出三个平台（Windows 用自带渲染器，macOS 用 Metal）。
 
 原项目是 [netdcy/FlowVision](https://github.com/netdcy/FlowVision)（macOS 上的 Swift/AppKit 瀑布流图片浏览器，GPL）。本项目是它的纯 Zig 重写。
