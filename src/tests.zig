@@ -80,6 +80,28 @@ pub fn waitForLayout(t: *ui.Tester, state: *app.State) !void {
     return error.TooSlow;
 }
 
+/// A real little photograph, from `src/photo.jpg`: everything after its
+/// SOI, so the fixture's exif can be hung in front and the decoders still
+/// have a whole picture to read.
+pub const photo_scan = @embedFile("photo.jpg")[2..];
+
+/// The bytes of a jpeg that carries the fixture's exif: SOI, the APP1
+/// with the fixture's tiff in it, then the photograph. The caller frees.
+pub fn exifJpeg(gpa: std.mem.Allocator, f: *const exif.Fixture) ![]u8 {
+    const seg: u16 = 2 + 6 + 191; // the length counts itself
+    const out = try gpa.alloc(u8, 4 + @as(usize, seg) + photo_scan.len);
+    out[0] = 0xFF;
+    out[1] = 0xD8; // SOI
+    out[2] = 0xFF;
+    out[3] = 0xE1; // APP1
+    out[4] = @intCast(seg >> 8);
+    out[5] = @intCast(seg & 0xFF);
+    @memcpy(out[6..12], "Exif\x00\x00");
+    @memcpy(out[12..][0..191], f.bytes[0..191]);
+    @memcpy(out[4 + seg ..], photo_scan);
+    return out;
+}
+
 test "a picture is decoded into the pixels the renderer draws" {
     const gpa = std.testing.allocator;
     var red = [_]u8{ 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255 };
@@ -287,6 +309,13 @@ test "a double click shows the picture large" {
     }
     try std.testing.expect(reds > 400);
 
+    // The wheel zooms in, anchored where the pointer is: the state has a
+    // zoom, and a chip names how much.
+    t.scroll(where.x + where.w / 2, where.y + where.h / 2, 120);
+    t.frame();
+    try std.testing.expect(state.zoom != null);
+    try std.testing.expect(t.containsText("%"));
+
     // Escape closes it again.
     _ = t.shortcut(.{ .key = ui.Shortcut.escape });
     t.settle(0.2);
@@ -448,30 +477,12 @@ test "a picture's exif is read when it is measured, and shows large" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    // The bytes a camera writes: SOI, an Exif APP1, just enough of a frame
-    // header for the size to be known, and the end.
+    // The bytes a camera writes: an Exif APP1 in front of a real
+    // photograph's scan.
     const f = exif.Fixture.build(.little);
-    var jpeg: [12 + 191 + 15 + 2]u8 = @splat(0);
-    jpeg[0] = 0xFF;
-    jpeg[1] = 0xD8;
-    jpeg[2] = 0xFF;
-    jpeg[3] = 0xE1;
-    const seg: u16 = @intCast(2 + 6 + 191);
-    jpeg[4] = @intCast(seg >> 8);
-    jpeg[5] = @intCast(seg & 0xFF);
-    @memcpy(jpeg[6..12], "Exif\x00\x00");
-    @memcpy(jpeg[12..][0..191], f.bytes[0..191]);
-    var n: usize = 12 + 191;
-    // A frame header saying 16 by 8.
-    jpeg[n] = 0xFF;
-    jpeg[n + 1] = 0xC0;
-    // The frame header: its length, precision 8, 8 by 16, one component.
-    const sof = [_]u8{ 0x00, 0x0B, 0x08, 0x00, 0x08, 0x00, 0x10, 0x01, 0x01, 0x11, 0x00 };
-    @memcpy(jpeg[n + 2 ..][0..sof.len], &sof);
-    n = n + 2 + sof.len;
-    jpeg[n] = 0xFF;
-    jpeg[n + 1] = 0xD9;
-    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "pic.jpg", .data = jpeg[0 .. n + 2] });
+    const jpeg = try exifJpeg(gpa, &f);
+    defer gpa.free(jpeg);
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "pic.jpg", .data = jpeg });
 
     const cwd = try std.process.currentPathAlloc(std.testing.io, gpa);
     defer gpa.free(cwd);
@@ -504,4 +515,35 @@ test "a picture's exif is read when it is measured, and shows large" {
     try std.testing.expect(t.containsText("f/2.8"));
     try std.testing.expect(t.containsText("1/250 s"));
     try std.testing.expect(t.containsText("2024-01-02 03:04"));
+}
+
+test "hovering a picture raises the chip, and it opens the menu" {
+    const gpa = std.testing.allocator;
+    var sample = try makeSample(gpa);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600 });
+    defer t.deinit();
+    t.frame();
+    t.frame();
+
+    const where = state.first_picture orelse return error.NoPictureOnScreen;
+
+    // The pointer off the pictures: no chip anywhere.
+    t.moveTo(450, 590);
+    t.frame();
+    try std.testing.expect(!t.hasText("⋯"));
+
+    // On the picture: the chip is there, and clicking it opens the menu.
+    t.moveTo(where.x + where.w - 10, where.y + 10);
+    t.frame();
+    try std.testing.expect(t.hasText("⋯"));
+    try t.clickText("⋯");
+    t.frame();
+    try std.testing.expect(state.menu_for != null);
+    try std.testing.expect(t.hasText("Open large"));
 }

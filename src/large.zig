@@ -148,6 +148,89 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         }
     }
 
+    const known = s.shared.get(key) orelse return;
+    if (known.thumb) |pixels| {
+        // The picture at its fit size, and the wheel that zooms it: the view
+        // takes the wheel where nothing scrolls. Zooming keeps to the fit at
+        // the small end and stops at eight times, and it anchors where the
+        // pointer is, so the point under it stays under it.
+        const room_w = c.size.w - 48;
+        const room_h = c.size.h - 48;
+        const img_w: f32 = @floatFromInt(pixels.w);
+        const img_h: f32 = @floatFromInt(pixels.h);
+        const fit = @min(room_w / img_w, room_h / img_h);
+        const wheel = c.input.scroll.y;
+        const zoom = s.zoom orelse fit;
+        const w = img_w * zoom;
+        const h = img_h * zoom;
+        if (wheel != 0) {
+            const base = s.zoom orelse fit;
+            const lo = @min(fit, 1.0);
+            const hi = @max(fit, 1.0) * 8.0;
+            const next = std.math.clamp(base * std.math.pow(f32, 1.15, wheel / 12), lo, hi);
+            // The point of the picture under the pointer stays there.
+            const mx = c.input.mouse.x - ((c.size.w - w) / 2 + s.pan_x);
+            const my = c.input.mouse.y - ((c.size.h - h) / 2 + s.pan_y);
+            if (base > 0) {
+                s.pan_x += mx - mx * next / base;
+                s.pan_y += my - my * next / base;
+            }
+            s.zoom = next;
+            c.changed = true;
+        }
+        // The picture dragged from the middle, held inside the overflow.
+        const overflow_x = @max(0, (w - room_w) / 2);
+        const overflow_y = @max(0, (h - room_h) / 2);
+        s.pan_x = std.math.clamp(s.pan_x, -overflow_x, overflow_x);
+        s.pan_y = std.math.clamp(s.pan_y, -overflow_y, overflow_y);
+
+        const texture = ui.Texture{ .width = pixels.w, .height = pixels.h, .bgra = pixels.bgra };
+        const frame = ui.div(c)
+            .absolute()
+            .offset((c.size.w - w) / 2 + s.pan_x, (c.size.h - h) / 2 + s.pan_y)
+            .w(w)
+            .h(h)
+            .shadowMd();
+        defer frame.end();
+        const inter = frame.interaction();
+        // Two clicks: fit and 1:1 change places.
+        if (inter.double_clicked) {
+            s.zoom = if ((s.zoom orelse fit) > fit + 0.01) null else 1.0;
+            s.pan_x = 0;
+            s.pan_y = 0;
+            c.changed = true;
+        } else if (inter.pressed and zoom > fit + 0.01) {
+            // Dragging the picture when it is bigger than the room.
+            if (s.panning) {
+                s.pan_x += c.input.mouse.x - s.last_mouse_x;
+                s.pan_y += c.input.mouse.y - s.last_mouse_y;
+                c.changed = true;
+            }
+            s.panning = true;
+            s.last_mouse_x = c.input.mouse.x;
+            s.last_mouse_y = c.input.mouse.y;
+        } else {
+            s.panning = false;
+        }
+        _ = ui.texture(c, .{ .width = .fill, .height = .fill }, texture, .{ 0, 0, 1, 1 }, 1);
+
+        // The zoom, as a chip by the picture: shown only when it differs from
+        // the fit, since "100%" of nothing means nothing to anyone.
+        if (zoom > fit + 0.01) {
+            const chip = ui.div(c).absolute()
+                .offset(c.size.w - 92, c.size.h - 56)
+                .px(12)
+                .py(6)
+                .rounded(8)
+                .bg(ui.Color.black.alpha(0.45));
+            defer chip.end();
+            ui.text(c, c.print("{d:.0}%", .{zoom * 100}), .{ .size = 12, .color = ui.Color.white });
+        }
+    } else {
+        // The worker is still on it: another frame as soon as it lands.
+        c.animationFrame();
+        ui.text(c, i18n.strings(s.lang).loading, .{ .size = 14, .color = th.muted });
+    }
     // What the picture says about itself, in the corner: its camera,
     // when it was taken, how, and what it means to us.
     if (!m.empty()) {
@@ -256,71 +339,6 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             ui.text(c, tr.keys_hint, .{ .size = 11, .color = ui.Color.white.alpha(0.55) });
         }
     }
-
-    const known = s.shared.get(key) orelse {
-        return;
-    };
-    const pixels = known.thumb orelse {
-        // The worker is still on it: another frame as soon as it lands.
-        c.animationFrame();
-        ui.text(c, i18n.strings(s.lang).loading, .{ .size = 14, .color = th.muted });
-        return;
-    };
-
-    // The picture at its fit size, and the wheel that zooms it: the view
-    // takes the wheel where nothing scrolls. Zooming keeps to the fit at
-    // the small end and stops at eight times.
-    const room_w = c.size.w - 48;
-    const room_h = c.size.h - 48;
-    const img_w: f32 = @floatFromInt(pixels.w);
-    const img_h: f32 = @floatFromInt(pixels.h);
-    const fit = @min(room_w / img_w, room_h / img_h);
-    const wheel = c.input.scroll.y;
-    if (wheel != 0) {
-        const base = s.zoom orelse fit;
-        const lo = @min(fit, 1.0);
-        const hi = @max(fit, 1.0) * 8.0;
-        s.zoom = std.math.clamp(base * std.math.pow(f32, 1.15, wheel), lo, hi);
-        c.changed = true;
-    }
-    const zoom = s.zoom orelse fit;
-    const w = img_w * zoom;
-    const h = img_h * zoom;
-    // The picture dragged from the middle, held inside the overflow.
-    const overflow_x = @max(0, (w - room_w) / 2);
-    const overflow_y = @max(0, (h - room_h) / 2);
-    s.pan_x = std.math.clamp(s.pan_x, -overflow_x, overflow_x);
-    s.pan_y = std.math.clamp(s.pan_y, -overflow_y, overflow_y);
-
-    const texture = ui.Texture{ .width = pixels.w, .height = pixels.h, .bgra = pixels.bgra };
-    const frame = ui.div(c)
-        .absolute()
-        .offset((c.size.w - w) / 2 + s.pan_x, (c.size.h - h) / 2 + s.pan_y)
-        .w(w)
-        .h(h)
-        .shadowMd();
-    defer frame.end();
-    const inter = frame.interaction();
-    // Two clicks: fit and 1:1 change places.
-    if (inter.double_clicked) {
-        s.zoom = if ((s.zoom orelse fit) > fit + 0.01) null else 1.0;
-        s.pan_x = 0;
-        s.pan_y = 0;
-        c.changed = true;
-    } else if (inter.pressed and zoom > fit + 0.01) {
-        // Dragging the picture when it is bigger than the room.
-        if (s.panning) {
-            s.pan_x += c.input.mouse.x - s.last_mouse_x;
-            s.pan_y += c.input.mouse.y - s.last_mouse_y;
-            c.changed = true;
-        }
-        s.panning = true;
-        s.last_mouse_x = c.input.mouse.x;
-        s.last_mouse_y = c.input.mouse.y;
-    } else {
-        s.panning = false;
-    }
-    _ = ui.texture(c, .{ .width = .fill, .height = .fill }, texture, .{ 0, 0, 1, 1 }, 1);
 }
 
 /// Appends formatted text to a line the info panel is building.

@@ -15,29 +15,10 @@ const ops = @import("ops.zig");
 const thumbs = @import("thumbs.zig");
 const tests_mod = @import("tests.zig");
 
-/// The bytes of a jpeg that carries the fixture's exif: enough of one for
-/// the size to be measured and the exif to be read, and no more.
-fn exifJpeg(f: *const exif.Fixture) [218]u8 {
-    var jpeg: [218]u8 = @splat(0);
-    jpeg[0] = 0xFF;
-    jpeg[1] = 0xD8;
-    jpeg[2] = 0xFF;
-    jpeg[3] = 0xE1;
-    const seg: u16 = @intCast(2 + 6 + 191);
-    jpeg[4] = @intCast(seg >> 8);
-    jpeg[5] = @intCast(seg & 0xFF);
-    @memcpy(jpeg[6..12], "Exif\x00\x00");
-    @memcpy(jpeg[12..][0..191], f.bytes[0..191]);
-    var n: usize = 12 + 191;
-    jpeg[n] = 0xFF;
-    jpeg[n + 1] = 0xC0;
-    const sof = [_]u8{ 0x00, 0x0B, 0x08, 0x00, 0x08, 0x00, 0x10, 0x01, 0x01, 0x11, 0x00 };
-    @memcpy(jpeg[n + 2 ..][0..sof.len], &sof);
-    n = n + 2 + sof.len;
-    jpeg[n] = 0xFF;
-    jpeg[n + 1] = 0xD9;
-    return jpeg;
-}
+/// The bytes of a jpeg that carries the fixture's exif: a real
+/// photograph's scan with the fixture's APP1 hung in front, so the
+/// decoders read a whole picture and the exif says what the fixture says.
+const exifJpeg = tests_mod.exifJpeg;
 
 test "stars go into the picture file, and the gallery sorts by them" {
     const gpa = std.testing.allocator;
@@ -45,7 +26,8 @@ test "stars go into the picture file, and the gallery sorts by them" {
     defer tmp.cleanup();
 
     const f = exif.Fixture.build(.little);
-    const jpeg = exifJpeg(&f);
+    const jpeg = try exifJpeg(gpa, &f);
+    defer gpa.free(jpeg);
     const cwd = try std.process.currentPathAlloc(std.testing.io, gpa);
     defer gpa.free(cwd);
     const dir_path = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/tmp/{s}", .{ cwd, tmp.sub_path });
@@ -87,7 +69,8 @@ test "the number keys rate a picture, and t tags it, into the file" {
     defer tmp.cleanup();
 
     const f = exif.Fixture.build(.little);
-    const jpeg = exifJpeg(&f);
+    const jpeg = try exifJpeg(gpa, &f);
+    defer gpa.free(jpeg);
     try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "pic.jpg", .data = jpeg[0..] });
     const cwd = try std.process.currentPathAlloc(std.testing.io, gpa);
     defer gpa.free(cwd);
@@ -147,7 +130,8 @@ test "snapshot: the exif panel with stars and tags" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     const f = exif.Fixture.build(.little);
-    const jpeg = exifJpeg(&f);
+    const jpeg = try exifJpeg(gpa, &f);
+    defer gpa.free(jpeg);
     try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "pic.jpg", .data = jpeg[0..] });
     const cwd = try std.process.currentPathAlloc(std.testing.io, gpa);
     defer gpa.free(cwd);
@@ -172,7 +156,18 @@ test "snapshot: the exif panel with stars and tags" {
     t.frame();
     const where = state.first_picture orelse return error.NoPictureOnScreen;
     t.doubleClick(where.x + where.w / 2, where.y + where.h / 2);
-    t.settle(0.3);
+    // The panel is there at once; wait for the picture itself, so the
+    // snapshot shows the photograph under it.
+    const large_key = try thumbs.largeKey(gpa, file_path);
+    defer gpa.free(large_key);
+    for (0..400) |_| {
+        t.frame();
+        if (state.shared.get(large_key)) |cached| {
+            if (cached.thumb != null) break;
+        }
+        std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake) catch {};
+    }
+    t.frame();
     t.screenshot("docs/app-rating.png") catch {};
 }
 
