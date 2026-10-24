@@ -9,18 +9,23 @@ on:
 permissions:
   contents: write
 
+env:
+  ZIG_URL: https://ziglang.org/download/0.17.0/zig-x86_64-windows-0.17.0.zip
+  ZIG_SHA256: b5663f69581dcf391293fbf16c06cb80d81d806545ce618b4d0bab7f0eb8c428
+
 jobs:
   windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: mlugg/setup-zig@v1
-        with:
-          version: 0.17.0
-          # The official source: the third-party mirrors have not
-          # carried 0.17.0 yet.
-          mirror: https://ziglang.org/download
+      - name: Set up Zig
+        shell: bash
+        run: |
+          curl -sSLo zig.zip "$ZIG_URL"
+          echo "$ZIG_SHA256  zig.zip" | sha256sum -c -
+          7z x zig.zip > /dev/null
+          echo "$PWD/zig-x86_64-windows-0.17.0" >> "$GITHUB_PATH"
 
       # The release is tested, not merely built: a broken release is
       # worse than no release.
