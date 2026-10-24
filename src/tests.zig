@@ -538,10 +538,12 @@ test "hovering a picture raises the chip, and it opens the menu" {
     t.frame();
     try std.testing.expect(!t.hasText("⋯"));
 
-    // On the picture: the chip is there, and clicking it opens the menu.
+    // On the picture: the chip is there, drawn on top of the photograph
+    // (not merely among the nodes), and clicking it opens the menu.
     t.moveTo(where.x + where.w - 10, where.y + 10);
     t.frame();
     try std.testing.expect(t.hasText("⋯"));
+    t.screenshot("docs/chip-hover.png") catch {};
     try t.clickText("⋯");
     t.frame();
     try std.testing.expect(state.menu_for != null);

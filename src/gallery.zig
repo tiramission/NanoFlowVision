@@ -238,7 +238,25 @@ fn viewPicture(s: *app.State, c: *ui.Context, pic: *model.Picture, place: masonr
         const n = c.node(c.stack.items[c.stack.items.len - 1]);
         n.style.border = th.border;
     }
+
+    // The photograph, or its place while the pixels are on their way.
+    const cached = s.shared.get(pic.path);
+    var drew_picture = false;
+    if (cached) |known| {
+        if (known.thumb) |pixels| {
+            const texture = ui.Texture{ .width = pixels.w, .height = pixels.h, .bgra = pixels.bgra };
+            _ = ui.texture(c, .{ .width = .fill, .height = .fill }, texture, .{ 0, 0, 1, 1 }, 1);
+            drew_picture = true;
+        }
+    }
+    if (!drew_picture) {
+        _ = c.leaf(.{ .width = .fill, .height = .fill, .radius = 8, .background = theme.colors(s.dark).well }, .none, null);
+    }
+
     // The menu's corner, on hover: a chip that reads on any photograph.
+    // It is drawn after the photograph, or the photograph's own pixels
+    // would land on top of it -- a corner no one can see, though it
+    // still answers clicks.
     if (hovered and s.menu_for == null and s.renaming == null) {
         const corner = ui.div(c).absolute().offset(place.w - 36, 6);
         defer corner.end();
@@ -268,15 +286,4 @@ fn viewPicture(s: *app.State, c: *ui.Context, pic: *model.Picture, place: masonr
             c.changed = true;
         }
     }
-
-    const cached = s.shared.get(pic.path);
-    if (cached) |known| {
-        if (known.thumb) |pixels| {
-            const texture = ui.Texture{ .width = pixels.w, .height = pixels.h, .bgra = pixels.bgra };
-            _ = ui.texture(c, .{ .width = .fill, .height = .fill }, texture, .{ 0, 0, 1, 1 }, 1);
-            return;
-        }
-    }
-    // Not ready yet: its place is shown.
-    _ = c.leaf(.{ .width = .fill, .height = .fill, .radius = 8, .background = theme.colors(s.dark).well }, .none, null);
 }
