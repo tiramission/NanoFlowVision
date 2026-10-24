@@ -474,20 +474,27 @@ pub const State = struct {
             row = if (on) row.bg(k.picked) else row.hover(k.hover);
             row = row.pl(7 + @as(f32, @floatFromInt(child.depth)) * 12);
             defer row.end();
-            if (row.clicked()) {
-                s.open(child);
-                // The folders inside it show, now that it is open.
-                child.expanded = true;
-            }
-            // The folders inside, folded or not: the chevron says which,
-            // and folds them on its own click.
+            // The chevron is sampled first: a click on it folds the folder's
+            // own in and out, and must not also open the folder -- both
+            // boxes sit under the pointer, and both would hear the click.
+            var folded = false;
             if (child.children.len > 0) {
                 var chev = ui.div(c).row().w(16).h(24).center().rounded(5).control();
                 defer chev.end();
                 ui.icon(c, if (child.expanded) "chevron.down" else "chevron.right", .{ .size = 10, .color = k.tertiary });
-                if (chev.clicked()) child.expanded = !child.expanded;
+                if (chev.clicked()) {
+                    child.expanded = !child.expanded;
+                    folded = true;
+                    c.changed = true;
+                }
             } else {
                 _ = c.leaf(.{ .width = .{ .px = 16 }, .height = .{ .px = 24 } }, .none, null);
+            }
+            if (row.clicked() and !folded) {
+                s.open(child);
+                // The folders inside it show, now that it is open.
+                child.expanded = true;
+                c.changed = true;
             }
             {
                 const chip = ui.div(c).row().w(20).h(20).center().rounded(6).bg(if (on) k.on_picked.alpha(0.22) else k.accent.alpha(0.16));

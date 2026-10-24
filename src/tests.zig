@@ -547,3 +547,32 @@ test "hovering a picture raises the chip, and it opens the menu" {
     try std.testing.expect(state.menu_for != null);
     try std.testing.expect(t.hasText("Open large"));
 }
+
+test "the tree unfolds at a folder's chevron, without opening it" {
+    const gpa = std.testing.allocator;
+    var sample = try makeSample(gpa);
+    defer sample.deinit(gpa);
+    try sample.tmp.dir.createDirPath(std.testing.io, "album/2024");
+    var red = [_]u8{ 0, 0, 255, 255 };
+    const png = try ui.png.encode(gpa, .{ .bytes = red[0..], .width = 1, .height = 1 });
+    defer gpa.free(png);
+    try sample.tmp.dir.writeFile(std.testing.io, .{ .sub_path = "album/two.png", .data = png });
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600 });
+    defer t.deinit();
+    try waitForLayout(&t, state);
+    try std.testing.expect(t.hasText("album"));
+
+    // The chevron sits left of the folder's chip: clicking it folds the
+    // folder open, and does not open the folder itself.
+    const where = t.findText("album") orelse return error.TextNotFound;
+    t.click(where.x - 46, where.y + where.h / 2);
+    t.settle(0.2);
+    const album = &state.tree.children[0];
+    try std.testing.expect(album.expanded);
+    try std.testing.expect(state.current != album);
+    try std.testing.expect(t.hasText("2024"));
+}
