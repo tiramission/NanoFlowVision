@@ -102,15 +102,11 @@ pub const State = struct {
     /// is open.
     lang: i18n.Lang = .en,
     settings_open: bool = false,
-    /// The large view's zoom (points per picture pixel; null fits) and
-    /// how far the picture has been dragged from the middle. The wheel
-    /// sets a target the zoom eases toward -- a jump a notch reads as a
-    /// stutter -- and the target carries the anchor the easing keeps.
+    /// The large view's zoom target (points per picture pixel; null
+    /// fits), and where its picture is headed: the frame's own easing
+    /// carries what is drawn there by the clock.
     zoom: ?f32 = null,
     zoom_target: ?f32 = null,
-    zoom_moving: bool = false,
-    pan_x: f32 = 0,
-    pan_y: f32 = 0,
     pan_tx: f32 = 0,
     pan_ty: f32 = 0,
     panning: bool = false,
