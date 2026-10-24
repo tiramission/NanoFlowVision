@@ -325,5 +325,5 @@ FlowVision 还有 `justified`（自适应行）和 `grid`（网格）两种布�
 
 ## 相关
 
-- 详细的调研记录和踩坑（Zig 0.17 的 API 变化、nanoui 的内部约定）见 `.workbuddy/memory/2026-10-23.md`。
-- 长期有效的技术决定见 `.workbuddy/memory/MEMORY.md`。
+- 详细的调研记录和踩坑（Zig 0.17 的 API 变化、nanoui 的内部约定）见 `.agents/memory/2026-10-23.md`。
+- 长期有效的技术决定见 `.agents/memory/MEMORY.md`。
