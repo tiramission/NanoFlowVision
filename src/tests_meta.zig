@@ -56,8 +56,10 @@ test "stars go into the picture file, and the gallery sorts by them" {
     try std.testing.expectEqualStrings("c.jpg", state.shown[0].name);
     try std.testing.expectEqualStrings("a.jpg", state.shown[2].name);
 
-    // The other way: the least first.
-    try t.clickText("↓");
+    // The other way: the least first. The direction is its own icon now,
+    // in the ghost button just right of the sort's segmented control.
+    const stars = t.findText("Stars") orelse return error.TextNotFound;
+    t.click(stars.x + stars.w + 38, stars.y + stars.h / 2);
     t.settle(0.2);
     try std.testing.expectEqualStrings("a.jpg", state.shown[0].name);
     try std.testing.expectEqualStrings("c.jpg", state.shown[2].name);

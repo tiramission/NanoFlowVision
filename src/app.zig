@@ -196,6 +196,26 @@ pub const State = struct {
         folder.children = try children.toOwnedSlice(s.gpa);
         folder.pictures = try pictures.toOwnedSlice(s.gpa);
         folder.loaded = true;
+
+        // The next level of folders is listed too, so a folder that holds
+        // folders shows its chevron before it is ever opened: one listing
+        // each, nothing decoded. The folder itself stays unloaded -- its
+        // pictures are listed only when it is opened.
+        for (folder.children) |*child| {
+            if (child.loaded or child.children.len > 0) continue;
+            var sub = scan.list(s.gpa, s.io, child.path) catch continue;
+            defer sub.deinit(s.gpa);
+            var subs: std.ArrayList(model.Folder) = .empty;
+            errdefer subs.deinit(s.gpa);
+            for (sub.folders) |name| {
+                try subs.append(s.gpa, .{
+                    .path = try model.join(s.gpa, child.path, name),
+                    .name = try s.gpa.dupe(u8, name),
+                    .depth = child.depth + 1,
+                });
+            }
+            child.children = try subs.toOwnedSlice(s.gpa);
+        }
     }
 
     /// The folder changed on disk (a picture went to the bin, a paste
@@ -394,8 +414,12 @@ pub const State = struct {
         const side = ui.div(c).column().w(214).hFull().bg(k.sidebar).px(10).gap(2);
         defer side.end();
         {
-            const top = ui.div(c).row().wFull().h(52).itemsCenter().px(6);
+            const top = ui.div(c).row().wFull().h(52).itemsCenter().gap(8).px(6);
             defer top.end();
+            // The mark, the app's own: a photograph on amber.
+            const mark = ui.div(c).row().w(22).h(22).center().rounded(6).bg(k.accent);
+            defer mark.end();
+            ui.icon(c, "photo", .{ .size = 12, .color = k.page });
             ui.text(c, "NanoFlowVision", .{ .size = 13, .weight = .bold, .color = k.text });
         }
         sideSection(c, k, tr.folders);
@@ -429,7 +453,7 @@ pub const State = struct {
             {
                 const chip = ui.div(c).row().w(20).h(20).center().rounded(6).bg(k.accent.alpha(0.16));
                 defer chip.end();
-                ui.icon(c, "settings", .{ .size = 11, .color = k.accent });
+                ui.icon(c, "slider.horizontal.3", .{ .size = 11, .color = k.accent });
             }
             ui.text(c, tr.settings, .{ .size = 13, .color = k.text });
         }
@@ -454,6 +478,16 @@ pub const State = struct {
                 s.open(child);
                 // The folders inside it show, now that it is open.
                 child.expanded = true;
+            }
+            // The folders inside, folded or not: the chevron says which,
+            // and folds them on its own click.
+            if (child.children.len > 0) {
+                var chev = ui.div(c).row().w(16).h(24).center().rounded(5).control();
+                defer chev.end();
+                ui.icon(c, if (child.expanded) "chevron.down" else "chevron.right", .{ .size = 10, .color = k.tertiary });
+                if (chev.clicked()) child.expanded = !child.expanded;
+            } else {
+                _ = c.leaf(.{ .width = .{ .px = 16 }, .height = .{ .px = 24 } }, .none, null);
             }
             {
                 const chip = ui.div(c).row().w(20).h(20).center().rounded(6).bg(if (on) k.on_picked.alpha(0.22) else k.accent.alpha(0.16));
