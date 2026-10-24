@@ -490,42 +490,47 @@ pub const State = struct {
         for (folder.children) |*child| {
             const on = s.current == child;
             const fg = if (on) k.on_picked else k.text;
-            var row = ui.div(c).row().wFull().h(30).itemsCenter().gap(9).px(7).rounded(7).control();
-            row = if (on) row.bg(k.picked) else row.hover(k.hover);
-            row = row.pl(7 + @as(f32, @floatFromInt(child.depth)) * 12);
-            defer row.end();
-            // The chevron is sampled first: a click on it folds the folder's
-            // own in and out, and must not also open the folder -- both
-            // boxes sit under the pointer, and both would hear the click.
-            var folded = false;
-            if (child.children.len > 0) {
-                var chev = ui.div(c).row().w(16).h(24).center().rounded(5).control();
-                defer chev.end();
-                ui.icon(c, if (child.expanded) "chevron.down" else "chevron.right", .{ .size = 10, .color = k.tertiary });
-                if (chev.clicked()) {
-                    child.expanded = !child.expanded;
-                    folded = true;
+            {
+                var row = ui.div(c).row().wFull().h(30).itemsCenter().gap(9).px(7).rounded(7).control();
+                row = if (on) row.bg(k.picked) else row.hover(k.hover);
+                row = row.pl(7 + @as(f32, @floatFromInt(child.depth)) * 12);
+                defer row.end();
+                // The chevron is sampled first: a click on it folds the folder's
+                // own in and out, and must not also open the folder -- both
+                // boxes sit under the pointer, and both would hear the click.
+                var folded = false;
+                if (child.children.len > 0) {
+                    var chev = ui.div(c).row().w(16).h(24).center().rounded(5).control();
+                    defer chev.end();
+                    ui.icon(c, if (child.expanded) "chevron.down" else "chevron.right", .{ .size = 10, .color = k.tertiary });
+                    if (chev.clicked()) {
+                        child.expanded = !child.expanded;
+                        folded = true;
+                        c.changed = true;
+                    }
+                } else {
+                    _ = c.leaf(.{ .width = .{ .px = 16 }, .height = .{ .px = 24 } }, .none, null);
+                }
+                if (row.clicked() and !folded) {
+                    s.open(child);
+                    // The folders inside it show, now that it is open.
+                    child.expanded = true;
                     c.changed = true;
                 }
-            } else {
-                _ = c.leaf(.{ .width = .{ .px = 16 }, .height = .{ .px = 24 } }, .none, null);
+                {
+                    const chip = ui.div(c).row().w(20).h(20).center().rounded(6).bg(if (on) k.on_picked.alpha(0.22) else k.accent.alpha(0.16));
+                    defer chip.end();
+                    ui.icon(c, "folder", .{ .size = 11, .color = if (on) k.on_picked else k.accent });
+                }
+                ui.text(c, child.name, .{ .size = 13, .weight = if (on) .semibold else .regular, .color = fg });
+                ui.spacer(c);
+                if (child.pictures.len > 0) {
+                    ui.textf(c, .{ .size = 11, .mono = true, .color = if (on) k.on_picked.alpha(0.8) else k.secondary }, "{d}", .{child.pictures.len});
+                }
             }
-            if (row.clicked() and !folded) {
-                s.open(child);
-                // The folders inside it show, now that it is open.
-                child.expanded = true;
-                c.changed = true;
-            }
-            {
-                const chip = ui.div(c).row().w(20).h(20).center().rounded(6).bg(if (on) k.on_picked.alpha(0.22) else k.accent.alpha(0.16));
-                defer chip.end();
-                ui.icon(c, "folder", .{ .size = 11, .color = if (on) k.on_picked else k.accent });
-            }
-            ui.text(c, child.name, .{ .size = 13, .weight = if (on) .semibold else .regular, .color = fg });
-            ui.spacer(c);
-            if (child.pictures.len > 0) {
-                ui.textf(c, .{ .size = 11, .mono = true, .color = if (on) k.on_picked.alpha(0.8) else k.secondary }, "{d}", .{child.pictures.len});
-            }
+            // The folders inside it, drawn BELOW its row: the row is closed
+            // by now, or its children would flow on beside it, a single
+            // thirty-point line wide, and never be seen.
             if (child.expanded) s.viewFolder(c, k, child);
         }
     }

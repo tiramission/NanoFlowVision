@@ -576,10 +576,19 @@ test "the tree unfolds at a folder's chevron, without opening it" {
     try std.testing.expect(state.current != album);
     try std.testing.expect(t.hasText("2024"));
 
+    // Below the folder's row, not beside it: a child drawn on the row's
+    // own line is a child no one will ever see.
+    const ralb = t.findText("album").?;
+    const r2024 = t.findText("2024").?;
+    try std.testing.expect(r2024.y > ralb.y + ralb.h);
+
     // The disk's changes read the folder again; what was folded open
-    // goes on being open.
+    // goes on being open, and stays where a reader can see it.
     state.relist();
     t.settle(0.2);
     try std.testing.expect(state.tree.children[0].expanded);
-    try std.testing.expect(t.hasText("2024"));
+    const ralb2 = t.findText("album").?;
+    const r2024b = t.findText("2024").?;
+    try std.testing.expect(r2024b.y > ralb2.y + ralb2.h);
+    t.screenshot("docs/tree-expanded.png") catch {};
 }
