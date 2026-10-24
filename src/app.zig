@@ -1,6 +1,7 @@
 //! The app: the tree o folders, the gallery of pictures, and the one shown large.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const nanoui = @import("nanoui");
 const ui = nanoui.ui;
 
@@ -16,6 +17,7 @@ const config = @import("config.zig");
 const watch = @import("watch.zig");
 const i18n = @import("i18n.zig");
 const theme = @import("theme.zig");
+const win = @import("win.zig");
 
 /// How much room between and around the pictures.
 const gap: f32 = 8;
@@ -188,6 +190,15 @@ pub const State = struct {
             }
         }
 
+        // The folders keep their fold across the listing: what was open
+        // goes on being open, by name. The disk's changes read the tree
+        // again; the reader's open folders are not the disk's to close.
+        for (children.items) |*child| {
+            for (folder.children) |*old| {
+                if (std.mem.eql(u8, old.name, child.name)) child.expanded = old.expanded;
+            }
+        }
+
         // The old goes out, the new goes in.
         for (folder.children) |*child| child.deinit(s.gpa);
         s.gpa.free(folder.children);
@@ -279,7 +290,9 @@ pub const State = struct {
 
     /// Writes the settings as they are now: the window's frame, the look,
     /// what the gallery takes in, the language. Called when a setting
-    /// changes and when the window closes.
+    /// changes and when the window closes. A maximized window is recorded
+    /// as such, and its frame with it -- the next start would rather open
+    /// at its own size than at the screen's.
     pub fn saveSettings(s: *State) void {
         const dir = s.settings_dir orelse return;
         var st: config.Settings = .{ .dark = s.dark, .recursive = s.recursive, .lang = s.lang };
@@ -289,6 +302,9 @@ pub const State = struct {
             st.y = f.y;
             st.width = f.width;
             st.height = f.height;
+            if (builtin.os.tag == .windows) {
+                if (w.hwnd) |hwnd| st.maximized = win.zoomed(@ptrCast(hwnd));
+            }
         }
         config.save(s.io, dir, st);
     }

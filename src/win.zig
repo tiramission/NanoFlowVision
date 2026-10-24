@@ -1,7 +1,6 @@
-//! The window's own icon: the one the exe carries in its resources,
-//! handed to the running window. The resource alone is only seen by
-//! Explorer; the title bar and the taskbar take it from the window, and
-//! the window is told with WM_SETICON.
+//! The window and the platform: its icon (the exe carries one in its
+//! resources, but the running window has to be told) and its state
+//! (whether it is maximized, which the settings remember).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -51,4 +50,15 @@ pub fn apply(window_handle: *anyopaque) void {
     ) orelse big;
     _ = SendMessageW(hwnd, WM_SETICON, ICON_BIG, @bitCast(@intFromPtr(big)));
     _ = SendMessageW(hwnd, WM_SETICON, ICON_SMALL, @bitCast(@intFromPtr(small)));
+}
+
+extern "user32" fn IsZoomed(hwnd: HWND) callconv(.winapi) i32;
+
+/// Whether the window is maximized -- the state a close should remember,
+/// so the next start can do something better than reopen at the full
+/// screen's size.
+pub fn zoomed(window_handle: *anyopaque) bool {
+    if (builtin.os.tag != .windows) return false;
+    const hwnd: HWND = @ptrCast(window_handle);
+    return IsZoomed(hwnd) != 0;
 }

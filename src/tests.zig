@@ -575,4 +575,11 @@ test "the tree unfolds at a folder's chevron, without opening it" {
     try std.testing.expect(album.expanded);
     try std.testing.expect(state.current != album);
     try std.testing.expect(t.hasText("2024"));
+
+    // The disk's changes read the folder again; what was folded open
+    // goes on being open.
+    state.relist();
+    t.settle(0.2);
+    try std.testing.expect(state.tree.children[0].expanded);
+    try std.testing.expect(t.hasText("2024"));
 }

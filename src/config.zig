@@ -17,6 +17,10 @@ pub const Settings = struct {
     recursive: bool = false,
     /// The language the interface speaks.
     lang: i18n.Lang = .en,
+    /// The window was maximized when it last closed. A maximized window
+    /// is the screen's size, and reopening at the screen's size is not
+    /// what anyone meant: the next start opens at its own size instead.
+    maximized: bool = false,
 };
 
 /// Reads the settings from `dir/settings.txt`, or the defaults when there
@@ -44,6 +48,8 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, dir_path: []const u8) Settings {
             out.dark = std.mem.eql(u8, value, "1");
         } else if (std.mem.eql(u8, key, "recursive")) {
             out.recursive = std.mem.eql(u8, value, "1");
+        } else if (std.mem.eql(u8, key, "maximized")) {
+            out.maximized = std.mem.eql(u8, value, "1");
         } else if (std.mem.eql(u8, key, "lang")) {
             out.lang = if (std.mem.eql(u8, value, "zh")) .zh else .en;
         }
@@ -65,8 +71,8 @@ pub fn save(io: std.Io, dir_path: []const u8, s: Settings) void {
     var buf: [512]u8 = undefined;
     var w = file.writer(io, &buf);
     w.interface.print(
-        "x = {d}\ny = {d}\nwidth = {d:.0}\nheight = {d:.0}\ndark = {d}\nrecursive = {d}\nlang = {s}\n",
-        .{ s.x orelse -1, s.y orelse -1, s.width, s.height, @intFromBool(s.dark), @intFromBool(s.recursive), @tagName(s.lang) },
+        "x = {d}\ny = {d}\nwidth = {d:.0}\nheight = {d:.0}\ndark = {d}\nrecursive = {d}\nmaximized = {d}\nlang = {s}\n",
+        .{ s.x orelse -1, s.y orelse -1, s.width, s.height, @intFromBool(s.dark), @intFromBool(s.recursive), @intFromBool(s.maximized), @tagName(s.lang) },
     ) catch return;
     w.interface.flush() catch return;
 }
@@ -121,4 +127,16 @@ test "settings round-trip" {
     const held = load(gpa, std.testing.io, dir_path);
     try std.testing.expectEqual(@as(f64, 1920), held.width);
     try std.testing.expectEqual(@as(f64, 320), held.height);
+
+    // A maximized window is remembered as such, and nothing else of its
+    // frame is worth keeping.
+    var big: Settings = .{};
+    big.x = -7;
+    big.y = -7;
+    big.width = 1673;
+    big.height = 975;
+    big.maximized = true;
+    save(std.testing.io, dir_path, big);
+    const was_big = load(gpa, std.testing.io, dir_path);
+    try std.testing.expect(was_big.maximized);
 }

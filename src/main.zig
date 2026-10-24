@@ -11,7 +11,7 @@ const app = @import("app.zig");
 const config = @import("config.zig");
 const i18n = @import("i18n.zig");
 const theme = @import("theme.zig");
-const winicon = @import("winicon.zig");
+const win = @import("win.zig");
 
 const app_name = "NanoFlowVision";
 
@@ -57,17 +57,22 @@ fn runApp(nanoui_app: *nanoui.App, init: std.process.Init) !void {
     // The exe's icon rides in its resources; the running window is told
     // of it here, for the title bar's corner and the taskbar.
     if (builtin.os.tag == .windows) {
-        if (window.hwnd) |hwnd| winicon.apply(@ptrCast(hwnd));
+        if (window.hwnd) |hwnd| win.apply(@ptrCast(hwnd));
     }
     try nanoui_app.run();
 }
 
 /// The settings, and the folder they live in (owned, when there is one).
+/// A window that closed maximized is not restored at the screen's size:
+/// it opens at the app's own size, as if it had never been dragged out.
 fn loadSettings(gpa: std.mem.Allocator, io: std.Io) struct { dir_path: ?[]u8, dark: bool, recursive: bool, lang: i18n.Lang, x: ?f64, y: ?f64, width: f64, height: f64 } {
     const dir_path: ?[]u8 = nanoui.path(gpa, .data, app_name) catch null;
     if (dir_path) |d| {
         std.Io.Dir.createDirAbsolute(io, d, .default_file) catch {};
         const s = config.load(gpa, io, d);
+        if (s.maximized) {
+            return .{ .dir_path = d, .dark = s.dark, .recursive = s.recursive, .lang = s.lang, .x = null, .y = null, .width = 1100, .height = 720 };
+        }
         return .{ .dir_path = d, .dark = s.dark, .recursive = s.recursive, .lang = s.lang, .x = s.x, .y = s.y, .width = s.width, .height = s.height };
     }
     return .{ .dir_path = null, .dark = false, .recursive = false, .lang = .en, .x = null, .y = null, .width = 1100, .height = 720 };
