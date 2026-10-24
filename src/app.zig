@@ -432,10 +432,14 @@ pub const State = struct {
         {
             const top = ui.div(c).row().wFull().h(52).itemsCenter().gap(8).px(6);
             defer top.end();
-            // The mark, the app's own: a photograph on amber.
-            const mark = ui.div(c).row().w(22).h(22).center().rounded(6).bg(k.accent);
-            defer mark.end();
-            ui.icon(c, "photo", .{ .size = 12, .color = k.page });
+            // The mark, the app's own: a photograph on amber. It closes
+            // before the name, which is no child of a twenty-two point
+            // box, however fond of it the mark may be.
+            {
+                const mark = ui.div(c).row().w(22).h(22).center().rounded(6).bg(k.accent);
+                defer mark.end();
+                ui.icon(c, "photo", .{ .size = 12, .color = k.page });
+            }
             ui.text(c, "NanoFlowVision", .{ .size = 13, .weight = .bold, .color = k.text });
         }
         sideSection(c, k, tr.folders);

@@ -16,11 +16,11 @@ const theme = @import("theme.zig");
 const thumbs = @import("thumbs.zig");
 
 /// How far ahead the thumbnails are asked for, in windows.
-const prefetch_ahead: f32 = 2.0;
+const prefetch_ahead: f32 = 4.0;
 /// How far behind, in windows: less, because the view came from there.
-const prefetch_behind: f32 = 0.5;
+const prefetch_behind: f32 = 1.0;
 /// How far above and below the window pictures are built, in windows.
-const build_margin: f32 = 0.15;
+const build_margin: f32 = 0.25;
 
 /// The gallery column: the header with the search and the sort, and
 /// under it the grid.
@@ -66,7 +66,9 @@ fn viewToolbar(s: *app.State, c: *ui.Context) void {
         s.sort_ascending = s.sort == .name;
         s.orderChanged();
     }
-    if (ui.button(c, "", .{ .variant = .ghost, .size = 13, .icon = if (s.sort_ascending) "arrow.up" else "arrow.down" }).clicked) {
+    // The set has no arrow.down, so the direction speaks in chevrons:
+    // they are the same ones the tree's folders fold with.
+    if (ui.button(c, "", .{ .variant = .ghost, .size = 13, .icon = if (s.sort_ascending) "chevron.up" else "chevron.down" }).clicked) {
         s.sort_ascending = !s.sort_ascending;
         s.orderChanged();
     }

@@ -16,7 +16,7 @@ pub const Settings = struct {
     /// Whether the gallery takes the subfolders' pictures in.
     recursive: bool = false,
     /// The language the interface speaks.
-    lang: i18n.Lang = .en,
+    lang: i18n.Lang = .zh,
     /// The window was maximized when it last closed. A maximized window
     /// is the screen's size, and reopening at the screen's size is not
     /// what anyone meant: the next start opens at its own size instead.

@@ -75,7 +75,7 @@ fn loadSettings(gpa: std.mem.Allocator, io: std.Io) struct { dir_path: ?[]u8, da
         }
         return .{ .dir_path = d, .dark = s.dark, .recursive = s.recursive, .lang = s.lang, .x = s.x, .y = s.y, .width = s.width, .height = s.height };
     }
-    return .{ .dir_path = null, .dark = false, .recursive = false, .lang = .en, .x = null, .y = null, .width = 1100, .height = 720 };
+    return .{ .dir_path = null, .dark = false, .recursive = false, .lang = .zh, .x = null, .y = null, .width = 1100, .height = 720 };
 }
 
 /// The window is closing: the way it sat is remembered, unless the window
