@@ -89,6 +89,10 @@ pub const State = struct {
     watcher: watch.Watcher = undefined,
     /// The folder changed on disk: it is listed again before the frame.
     relist_pending: bool = false,
+    /// A folder the reader picked in the dialog, waiting for the frame to
+    /// end before it becomes the root: the frame is still walking the old
+    /// tree, and the old tree is not the time to free.
+    reroot_pending: ?[]u8 = null,
     /// The folder the settings are kept in, owned.
     settings_dir: ?[]u8 = null,
     /// A snapshot or a script run: its window never sat anywhere, so the
@@ -142,6 +146,7 @@ pub const State = struct {
         s.gpa.free(s.shown);
         s.gpa.free(s.aspects);
         if (s.large_key) |key| s.gpa.free(key);
+        if (s.reroot_pending) |path| s.gpa.free(path);
         s.keep.deinit(s.gpa);
         s.gpa.destroy(s);
     }
@@ -265,6 +270,53 @@ pub const State = struct {
         s.watcher.start(folder.path);
     }
 
+    /// Asks the reader for a folder, and queues it as the new root. The
+    /// dialog is modal here, in the middle of a frame: the tree it would
+    /// replace is the tree this frame is still walking, so the change
+    /// waits for the next one.
+    pub fn openFolderDialog(s: *State) void {
+        const picked = nanoui.dialog.open(s.gpa, .{
+            .title = i18n.strings(s.lang).open_folder,
+            .directories = true,
+            .files = false,
+            .directory = s.tree.path,
+        }) catch return;
+        if (picked) |paths| {
+            defer nanoui.dialog.freePaths(s.gpa, paths);
+            if (paths.len > 0) {
+                if (s.reroot_pending) |old| s.gpa.free(old);
+                s.reroot_pending = s.gpa.dupe(u8, paths[0]) catch null;
+            }
+        }
+    }
+
+    /// Makes another folder the root: the tree is read from it anew, the
+    /// gallery shows what it holds, and the watcher moves with it.
+    pub fn reroot(s: *State, path: []const u8) void {
+        const tree = &s.tree;
+        if (std.mem.eql(u8, tree.path, path)) return;
+        for (tree.children) |*child| child.deinit(s.gpa);
+        s.gpa.free(tree.children);
+        for (tree.pictures) |*p| p.deinit(s.gpa);
+        s.gpa.free(tree.pictures);
+        tree.children = &.{};
+        tree.pictures = &.{};
+        tree.loaded = false;
+        tree.expanded = false;
+        tree.depth = 0;
+        const new_path = s.gpa.dupe(u8, path) catch return;
+        const new_name = s.gpa.dupe(u8, model.nameOf(path)) catch {
+            s.gpa.free(new_path);
+            return;
+        };
+        s.gpa.free(tree.path);
+        s.gpa.free(tree.name);
+        tree.path = new_path;
+        tree.name = new_name;
+        s.open(tree);
+        s.saveSettings();
+    }
+
     /// The sort or the search changed: the order follows, from the top,
     /// and none of it costs a decode -- the cache is keyed by path.
     pub fn orderChanged(s: *State) void {
@@ -295,7 +347,7 @@ pub const State = struct {
     /// at its own size than at the screen's.
     pub fn saveSettings(s: *State) void {
         const dir = s.settings_dir orelse return;
-        var st: config.Settings = .{ .dark = s.dark, .recursive = s.recursive, .lang = s.lang };
+        var st: config.Settings = .{ .dark = s.dark, .recursive = s.recursive, .lang = s.lang, .root = s.tree.path };
         if (s.window) |w| {
             const f = w.frame();
             st.x = f.x;
@@ -407,6 +459,11 @@ pub const State = struct {
             s.relist_pending = false;
             s.relist();
         }
+        if (s.reroot_pending) |path| {
+            s.reroot_pending = null;
+            s.reroot(path);
+            s.gpa.free(path);
+        }
         if (s.large != null) {
             large.view(s, c);
             return;
@@ -446,7 +503,8 @@ pub const State = struct {
         ui.scroll(c, .{ .width = .fill, .height = .fill, .gap = 2 });
         s.viewFolder(c, k, &s.tree);
         ui.end(c);
-        // What the gallery takes in, and whether the folder is watched.
+        // What the gallery takes in, whether the folder is watched, and
+        // the way to another folder altogether.
         {
             const row = ui.div(c).row().wFull().itemsCenter().px(8).py(4);
             defer row.end();
@@ -454,6 +512,18 @@ pub const State = struct {
                 if (s.current) |folder| folder.loaded = false;
                 s.relist_pending = true;
             }
+        }
+        {
+            var row = ui.div(c).row().wFull().h(30).itemsCenter().gap(9).px(7).rounded(7).control();
+            defer row.end();
+            row = row.hover(k.hover);
+            if (row.clicked()) s.openFolderDialog();
+            {
+                const chip = ui.div(c).row().w(20).h(20).center().rounded(6).bg(k.accent.alpha(0.16));
+                defer chip.end();
+                ui.icon(c, "folder", .{ .size = 11, .color = k.accent });
+            }
+            ui.text(c, tr.open_folder, .{ .size = 13, .color = k.text });
         }
         {
             const row = ui.div(c).row().wFull().gap(7).itemsCenter().px(8).pb(2);

@@ -592,3 +592,38 @@ test "the tree unfolds at a folder's chevron, without opening it" {
     try std.testing.expect(r2024b.y > ralb2.y + ralb2.h);
     t.screenshot("docs/tree-expanded.png") catch {};
 }
+
+test "another folder can become the root" {
+    const gpa = std.testing.allocator;
+    var sample = try makeSample(gpa);
+    defer sample.deinit(gpa);
+
+    // A second folder, with a photograph of its own.
+    var red = [_]u8{ 0, 255, 0, 255 };
+    const png = try ui.png.encode(gpa, .{ .bytes = red[0..], .width = 1, .height = 1 });
+    defer gpa.free(png);
+    try sample.tmp.dir.createDirPath(std.testing.io, "second");
+    try sample.tmp.dir.writeFile(std.testing.io, .{ .sub_path = "second/own.png", .data = png });
+    const second = try std.fmt.allocPrint(gpa, "{s}/second", .{sample.path});
+    defer gpa.free(second);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    state.reroot(second);
+
+    // The tree is rooted at it, the root folder is shown, and its
+    // picture is the gallery's own.
+    try std.testing.expectEqualStrings("second", state.tree.name);
+    try std.testing.expectEqual(@as(usize, 1), state.tree.pictures.len);
+    try std.testing.expectEqualStrings("own.png", state.tree.pictures[0].name);
+    try std.testing.expect(state.current == &state.tree);
+
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600 });
+    defer t.deinit();
+    try waitForLayout(&t, state);
+    try std.testing.expect(t.hasText("second"));
+
+    // The old root's pictures are gone from the tree.
+    try std.testing.expect(!t.hasText("pic-0.png"));
+}

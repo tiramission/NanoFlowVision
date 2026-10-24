@@ -1,8 +1,9 @@
 //! NanoFlowVision: a picture browser, drawn by nanoui.
 //!
-//! The folder to show is the one on the command line, the user's pictures,
-//! or the folder the app was started in. The way the window sat and the
-//! way the gallery was set come back as they were.
+//! The folder to show is the one on the command line, the one the last
+//! visit ended at, the user's pictures, or the folder the app was started
+//! in -- and once open, another folder is a dialog away. The way the
+//! window sat and the way the gallery was set come back as they were.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -25,7 +26,7 @@ fn runApp(nanoui_app: *nanoui.App, init: std.process.Init) !void {
     const settings = loadSettings(gpa, init.io);
     defer if (settings.dir_path) |d| gpa.free(d);
 
-    const root = try rootFolder(init);
+    const root = try rootFolder(init, settings.root);
     defer init.gpa.free(root);
 
     const state = try app.State.create(gpa, init.io, root);
@@ -38,6 +39,12 @@ fn runApp(nanoui_app: *nanoui.App, init: std.process.Init) !void {
     state.recursive = settings.recursive;
     state.lang = settings.lang;
     state.settings_dir = settings.dir_path;
+    if (settings.recursive) {
+        // The first listing ran before the flag was known: read again,
+        // with the subfolders' pictures in.
+        state.tree.loaded = false;
+        state.relist_pending = true;
+    }
     // A snapshot or a script run opens a figment of a window: the way it
     // sat is not how the app sits, and is not worth remembering.
     state.snapshot_run = nanoui_app.flags.snapshot != null;
@@ -65,17 +72,17 @@ fn runApp(nanoui_app: *nanoui.App, init: std.process.Init) !void {
 /// The settings, and the folder they live in (owned, when there is one).
 /// A window that closed maximized is not restored at the screen's size:
 /// it opens at the app's own size, as if it had never been dragged out.
-fn loadSettings(gpa: std.mem.Allocator, io: std.Io) struct { dir_path: ?[]u8, dark: bool, recursive: bool, lang: i18n.Lang, x: ?f64, y: ?f64, width: f64, height: f64 } {
+fn loadSettings(gpa: std.mem.Allocator, io: std.Io) struct { dir_path: ?[]u8, dark: bool, recursive: bool, lang: i18n.Lang, x: ?f64, y: ?f64, width: f64, height: f64, root: []const u8 } {
     const dir_path: ?[]u8 = nanoui.path(gpa, .data, app_name) catch null;
     if (dir_path) |d| {
         std.Io.Dir.createDirAbsolute(io, d, .default_file) catch {};
         const s = config.load(gpa, io, d);
         if (s.maximized) {
-            return .{ .dir_path = d, .dark = s.dark, .recursive = s.recursive, .lang = s.lang, .x = null, .y = null, .width = 1100, .height = 720 };
+            return .{ .dir_path = d, .dark = s.dark, .recursive = s.recursive, .lang = s.lang, .x = null, .y = null, .width = 1100, .height = 720, .root = s.root };
         }
-        return .{ .dir_path = d, .dark = s.dark, .recursive = s.recursive, .lang = s.lang, .x = s.x, .y = s.y, .width = s.width, .height = s.height };
+        return .{ .dir_path = d, .dark = s.dark, .recursive = s.recursive, .lang = s.lang, .x = s.x, .y = s.y, .width = s.width, .height = s.height, .root = s.root };
     }
-    return .{ .dir_path = null, .dark = false, .recursive = false, .lang = .zh, .x = null, .y = null, .width = 1100, .height = 720 };
+    return .{ .dir_path = null, .dark = false, .recursive = false, .lang = .zh, .x = null, .y = null, .width = 1100, .height = 720, .root = "" };
 }
 
 /// The window is closing: the way it sat is remembered, unless the window
@@ -88,8 +95,10 @@ fn saveFromWindow(ctx: *anyopaque, window: *nanoui.Window) void {
     state.saveSettings();
 }
 
-/// The folder to show.
-fn rootFolder(init: std.process.Init) ![]u8 {
+/// The folder to show: the one on the command line, the one the last
+/// visit ended at, the user's pictures, or the folder the app was
+/// started in.
+fn rootFolder(init: std.process.Init, remembered: []const u8) ![]u8 {
     const gpa = init.gpa;
     var args = try std.process.Args.iterateAllocator(init.minimal.args, gpa);
     defer args.deinit();
@@ -97,6 +106,8 @@ fn rootFolder(init: std.process.Init) ![]u8 {
     if (args.next()) |arg| {
         if (arg.len > 0) return gpa.dupe(u8, arg);
     }
+
+    if (remembered.len > 0 and isFolder(init.io, remembered)) return gpa.dupe(u8, remembered);
 
     const home = if (builtin.os.tag == .windows)
         init.environ_map.get("USERPROFILE")

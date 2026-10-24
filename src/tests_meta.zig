@@ -228,8 +228,10 @@ test "the settings panel switches the language, and it persists" {
     try std.testing.expect(t.hasText("名称"));
     try std.testing.expect(t.hasText("上级"));
 
-    // And the file on disk says so.
+    // And the file on disk says so. The root it carries is the load's
+    // own memory, and goes back when the test is done with it.
     const saved = config.load(gpa, std.testing.io, dir_path);
+    defer if (saved.root.len > 0) gpa.free(saved.root);
     try std.testing.expectEqual(i18n.Lang.zh, saved.lang);
 }
 

@@ -15,6 +15,9 @@ pub const Settings = struct {
     dark: bool = false,
     /// Whether the gallery takes the subfolders' pictures in.
     recursive: bool = false,
+    /// The folder the tree was rooted at, opened again next time. Empty
+    /// for the app's own choice of a starting folder.
+    root: []const u8 = "",
     /// The language the interface speaks.
     lang: i18n.Lang = .zh,
     /// The window was maximized when it last closed. A maximized window
@@ -50,6 +53,10 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, dir_path: []const u8) Settings {
             out.recursive = std.mem.eql(u8, value, "1");
         } else if (std.mem.eql(u8, key, "maximized")) {
             out.maximized = std.mem.eql(u8, value, "1");
+        } else if (std.mem.eql(u8, key, "root")) {
+            // The value is a slice of the file's own bytes, which go out
+            // with the read: the root keeps a copy of its own.
+            out.root = gpa.dupe(u8, value) catch "";
         } else if (std.mem.eql(u8, key, "lang")) {
             out.lang = if (std.mem.eql(u8, value, "zh")) .zh else .en;
         }
@@ -68,11 +75,11 @@ pub fn save(io: std.Io, dir_path: []const u8, s: Settings) void {
     defer std.heap.smp_allocator.free(where);
     var file = std.Io.Dir.createFileAbsolute(io, where, .{ .truncate = true }) catch return;
     defer file.close(io);
-    var buf: [512]u8 = undefined;
+    var buf: [1024]u8 = undefined;
     var w = file.writer(io, &buf);
     w.interface.print(
-        "x = {d}\ny = {d}\nwidth = {d:.0}\nheight = {d:.0}\ndark = {d}\nrecursive = {d}\nmaximized = {d}\nlang = {s}\n",
-        .{ s.x orelse -1, s.y orelse -1, s.width, s.height, @intFromBool(s.dark), @intFromBool(s.recursive), @intFromBool(s.maximized), @tagName(s.lang) },
+        "x = {d}\ny = {d}\nwidth = {d:.0}\nheight = {d:.0}\ndark = {d}\nrecursive = {d}\nmaximized = {d}\nroot = {s}\nlang = {s}\n",
+        .{ s.x orelse -1, s.y orelse -1, s.width, s.height, @intFromBool(s.dark), @intFromBool(s.recursive), @intFromBool(s.maximized), s.root, @tagName(s.lang) },
     ) catch return;
     w.interface.flush() catch return;
 }
@@ -138,5 +145,14 @@ test "settings round-trip" {
     big.maximized = true;
     save(std.testing.io, dir_path, big);
     const was_big = load(gpa, std.testing.io, dir_path);
+    defer if (was_big.root.len > 0) gpa.free(was_big.root);
     try std.testing.expect(was_big.maximized);
+
+    // The root comes back as it went in.
+    var rooted: Settings = .{};
+    rooted.root = "C:/Users/a/Pictures/2024";
+    save(std.testing.io, dir_path, rooted);
+    const came_back = load(gpa, std.testing.io, dir_path);
+    defer if (came_back.root.len > 0) gpa.free(came_back.root);
+    try std.testing.expectEqualStrings("C:/Users/a/Pictures/2024", came_back.root);
 }
