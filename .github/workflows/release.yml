@@ -18,6 +18,9 @@ jobs:
       - uses: mlugg/setup-zig@v1
         with:
           version: 0.17.0
+          # The official source: the third-party mirrors have not
+          # carried 0.17.0 yet.
+          mirror: https://ziglang.org/download
 
       # The release is tested, not merely built: a broken release is
       # worse than no release.

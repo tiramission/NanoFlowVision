@@ -15,10 +15,12 @@ jobs:
       - uses: actions/checkout@v4
 
       # The Zig of the build files, pinned so a toolchain change never
-      # breaks a build that worked yesterday.
+      # breaks a build that worked yesterday. The official source: the
+      # third-party mirrors have not carried 0.17.0 yet.
       - uses: mlugg/setup-zig@v1
         with:
           version: 0.17.0
+          mirror: https://ziglang.org/download
 
       - name: Test
         run: zig build test
