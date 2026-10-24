@@ -17,7 +17,7 @@ const theme = @import("theme.zig");
 
 /// How much room between and around the pictures.
 const gap: f32 = 8;
-const padding: f32 = 16;
+const padding: f32 = 20;
 /// How many columns the gallery has at most.
 const max_columns: usize = 6;
 /// How far above and below the window pictures are built, in windows.
@@ -350,48 +350,69 @@ pub const State = struct {
     }
 
     /// The folders, down the left.
+    /// The sidebar, the way nanomon draws one: the name on top, the folders
+    /// as rows with their counts, and the watch's status at the bottom.
     fn viewTree(s: *State, c: *ui.Context) void {
-        const th = c.theme;
-        ui.column(c, .{
-            .width = .{ .px = 220 },
-            .height = .fill,
-            .padding = .{ .top = 16, .left = 12, .right = 12, .bottom = 16 },
-            .gap = 4,
-            .background = th.surface,
-        });
-        defer ui.end(c);
-        ui.text(c, "NanoFlowVision", .{ .size = 15, .weight = .bold });
-        ui.label(c, "folders");
-        if (ui.checkbox(c, "Subfolders", &s.recursive)) {
-            if (s.current) |folder| folder.loaded = false;
-            s.relist_pending = true;
+        const k = theme.colors(s.dark);
+        const side = ui.div(c).column().w(214).hFull().bg(k.sidebar).px(10).gap(2);
+        defer side.end();
+        {
+            const top = ui.div(c).row().wFull().h(52).itemsCenter().px(6);
+            defer top.end();
+            ui.text(c, "NanoFlowVision", .{ .size = 13, .weight = .bold, .color = k.text });
         }
+        sideSection(c, k, "Folders");
         ui.scroll(c, .{ .width = .fill, .height = .fill, .gap = 2 });
-        defer ui.end(c);
-        s.viewFolder(c, &s.tree);
+        s.viewFolder(c, k, &s.tree);
+        ui.end(c);
+        // What the gallery takes in, and whether the folder is watched.
+        {
+            const row = ui.div(c).row().wFull().itemsCenter().px(8).py(4);
+            defer row.end();
+            if (ui.checkbox(c, "Subfolders", &s.recursive)) {
+                if (s.current) |folder| folder.loaded = false;
+                s.relist_pending = true;
+            }
+        }
+        {
+            const row = ui.div(c).row().wFull().gap(7).itemsCenter().px(8).pb(6);
+            defer row.end();
+            _ = c.leaf(.{ .width = .{ .px = 7 }, .height = .{ .px = 7 }, .radius = 3.5, .background = k.green }, .none, null);
+            ui.text(c, "Watching", .{ .size = 11, .color = k.secondary });
+        }
     }
 
-    fn viewFolder(s: *State, c: *ui.Context, folder: *model.Folder) void {
-        const th = c.theme;
+    /// A sidebar section's name.
+    fn sideSection(c: *ui.Context, k: theme.Colors, name: []const u8) void {
+        const d = ui.div(c).row().wFull().px(8).pt(14).pb(4);
+        defer d.end();
+        ui.text(c, name, .{ .size = 11, .weight = .semibold, .color = k.tertiary });
+    }
+
+    fn viewFolder(s: *State, c: *ui.Context, k: theme.Colors, folder: *model.Folder) void {
         for (folder.children) |*child| {
-            const selected = s.current == child;
-            const fg = if (selected) th.accent_text else th.text;
-            var row = ui.div(c).row().wFull().h(28).gap(6).itemsCenter().rounded(7);
-            row = if (selected) row.bg(th.accent) else row.hover(th.surface_hover);
-            row = row.pl(6 + @as(f32, @floatFromInt(child.depth)) * 12);
+            const on = s.current == child;
+            const fg = if (on) k.on_picked else k.text;
+            var row = ui.div(c).row().wFull().h(30).itemsCenter().gap(9).px(7).rounded(7).control();
+            row = if (on) row.bg(k.picked) else row.hover(k.hover);
+            row = row.pl(7 + @as(f32, @floatFromInt(child.depth)) * 12);
+            defer row.end();
             if (row.clicked()) {
                 s.open(child);
                 // The folders inside it show, now that it is open.
                 child.expanded = true;
             }
-            ui.icon(c, "folder", .{ .size = 12, .frame = 15, .color = fg });
-            ui.text(c, child.name, .{ .size = 13, .color = fg });
+            {
+                const chip = ui.div(c).row().w(20).h(20).center().rounded(6).bg(if (on) k.on_picked.alpha(0.22) else k.accent.alpha(0.16));
+                defer chip.end();
+                ui.icon(c, "folder", .{ .size = 11, .color = if (on) k.on_picked else k.accent });
+            }
+            ui.text(c, child.name, .{ .size = 13, .weight = if (on) .semibold else .regular, .color = fg });
             ui.spacer(c);
             if (child.pictures.len > 0) {
-                ui.textf(c, .{ .size = 11, .color = fg }, "{d}", .{child.pictures.len});
+                ui.textf(c, .{ .size = 11, .mono = true, .color = if (on) k.on_picked.alpha(0.8) else k.secondary }, "{d}", .{child.pictures.len});
             }
-            row.end();
-            if (child.expanded) s.viewFolder(c, child);
+            if (child.expanded) s.viewFolder(c, k, child);
         }
     }
 
@@ -404,21 +425,19 @@ pub const State = struct {
         menu.view(s, c);
     }
 
+    /// The page's header, as nanomon draws one: the folder's name and its
+    /// path on the left, the search and the sort on the right.
     fn viewToolbar(s: *State, c: *ui.Context) void {
-        const th = c.theme;
+        const k = theme.colors(s.dark);
         const current = s.current;
-        ui.row(c, .{
-            .width = .fill,
-            .height = .{ .px = 48 },
-            .padding = .{ .left = 12, .right = 14 },
-            .gap = 10,
-            .align_items = .center,
-            .background = th.surface,
-        });
-        defer ui.end(c);
+        const head = ui.div(c).row().wFull().h(52).itemsCenter().gap(8).px(20);
+        defer head.end();
         if (ui.button(c, "Up", .{ .variant = .ghost, .size = 13 }).clicked) s.goUp();
         if (current) |folder| {
-            ui.text(c, folder.name, .{ .size = 14, .weight = .semibold });
+            const t = ui.div(c).column().gap(1).clip();
+            defer t.end();
+            ui.text(c, folder.name, .{ .size = 15, .weight = .bold, .color = k.text });
+            ui.text(c, folder.path, .{ .size = 11, .color = k.secondary });
         }
         ui.spacer(c);
         // The search: what matches stays, the rest waits its turn.
@@ -437,9 +456,9 @@ pub const State = struct {
         }
         if (current) |folder| {
             if (s.shown.len == folder.pictures.len) {
-                ui.textf(c, .{ .size = 12, .color = th.muted }, "{d} pictures", .{folder.pictures.len});
+                ui.textf(c, .{ .size = 12, .color = k.secondary }, "{d} pictures", .{folder.pictures.len});
             } else {
-                ui.textf(c, .{ .size = 12, .color = th.muted }, "{d} of {d} pictures", .{ s.shown.len, folder.pictures.len });
+                ui.textf(c, .{ .size = 12, .color = k.secondary }, "{d} of {d} pictures", .{ s.shown.len, folder.pictures.len });
             }
         }
     }
