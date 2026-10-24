@@ -13,6 +13,7 @@ const exif = @import("exif.zig");
 const model = @import("model.zig");
 const ops = @import("ops.zig");
 const thumbs = @import("thumbs.zig");
+const i18n = @import("i18n.zig");
 const xmp = @import("xmp.zig");
 
 /// Opens a picture large. Its own cache key keeps the big pixels from
@@ -132,6 +133,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
     s.pool.ask(pic.path, key, .large);
 
     var m: exif.Meta = s.shared.metaOf(pic.path) orelse exif.Meta{};
+    const tr = i18n.strings(s.lang);
     if (editable(pic.name)) {
         // The number keys rate the picture; `t` starts a tag. While the
         // tag is being typed, the keys belong to the field.
@@ -240,7 +242,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         }
         if (s.tag_editing) {
             const field = ui.textField(c, &s.tag_field, .{
-                .placeholder = "Add a tag…",
+                .placeholder = tr.add_tag,
                 .width = .{ .px = 220 },
                 .size = 13,
             });
@@ -251,7 +253,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
                 s.tag_editing = false;
             }
         } else if (editable(pic.name)) {
-            ui.text(c, "1-5 rate · t tag · 0 clear", .{ .size = 11, .color = ui.Color.white.alpha(0.55) });
+            ui.text(c, tr.keys_hint, .{ .size = 11, .color = ui.Color.white.alpha(0.55) });
         }
     }
 
@@ -261,7 +263,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
     const pixels = known.thumb orelse {
         // The worker is still on it: another frame as soon as it lands.
         c.animationFrame();
-        ui.text(c, "loading…", .{ .size = 14, .color = th.muted });
+        ui.text(c, i18n.strings(s.lang).loading, .{ .size = 14, .color = th.muted });
         return;
     };
 

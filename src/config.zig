@@ -3,6 +3,7 @@
 //! lines of "key = value" -- nothing here is worth a format of its own.
 
 const std = @import("std");
+const i18n = @import("i18n.zig");
 
 pub const Settings = struct {
     /// Where the window sat. Null when it was centred by the system.
@@ -14,6 +15,8 @@ pub const Settings = struct {
     dark: bool = false,
     /// Whether the gallery takes the subfolders' pictures in.
     recursive: bool = false,
+    /// The language the interface speaks.
+    lang: i18n.Lang = .en,
 };
 
 /// Reads the settings from `dir/settings.txt`, or the defaults when there
@@ -41,6 +44,8 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, dir_path: []const u8) Settings {
             out.dark = std.mem.eql(u8, value, "1");
         } else if (std.mem.eql(u8, key, "recursive")) {
             out.recursive = std.mem.eql(u8, value, "1");
+        } else if (std.mem.eql(u8, key, "lang")) {
+            out.lang = if (std.mem.eql(u8, value, "zh")) .zh else .en;
         }
     }
     if (out.width < 200) out.width = 200;
@@ -58,8 +63,8 @@ pub fn save(io: std.Io, dir_path: []const u8, s: Settings) void {
     var buf: [512]u8 = undefined;
     var w = file.writer(io, &buf);
     w.interface.print(
-        "x = {d}\ny = {d}\nwidth = {d:.0}\nheight = {d:.0}\ndark = {d}\nrecursive = {d}\n",
-        .{ s.x orelse -1, s.y orelse -1, s.width, s.height, @intFromBool(s.dark), @intFromBool(s.recursive) },
+        "x = {d}\ny = {d}\nwidth = {d:.0}\nheight = {d:.0}\ndark = {d}\nrecursive = {d}\nlang = {s}\n",
+        .{ s.x orelse -1, s.y orelse -1, s.width, s.height, @intFromBool(s.dark), @intFromBool(s.recursive), @tagName(s.lang) },
     ) catch return;
     w.interface.flush() catch return;
 }

@@ -11,6 +11,7 @@ const app = @import("app.zig");
 const large = @import("large.zig");
 const model = @import("model.zig");
 const ops = @import("ops.zig");
+const i18n = @import("i18n.zig");
 
 /// The clipboard's files land in this folder, under names that do not
 /// collide, and the gallery lists them.
@@ -57,12 +58,13 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         .bg(th.surface)
         .shadowMd();
     defer menu.end();
-    item(s, c, th, mp, "Open large", .open_large);
-    item(s, c, th, mp, "Open in system", .open_system);
-    item(s, c, th, mp, "Reveal in Explorer", .reveal);
-    item(s, c, th, mp, "Copy", .copy);
-    item(s, c, th, mp, "Rename…", .rename);
-    item(s, c, th, mp, "Move to Recycle Bin", .trash);
+    const tr = i18n.strings(s.lang);
+    item(s, c, th, mp, tr.open_large, .open_large);
+    item(s, c, th, mp, tr.open_system, .open_system);
+    item(s, c, th, mp, tr.reveal, .reveal);
+    item(s, c, th, mp, tr.copy, .copy);
+    item(s, c, th, mp, tr.rename_menu, .rename);
+    item(s, c, th, mp, tr.to_bin, .trash);
 }
 
 fn item(s: *app.State, c: *ui.Context, th: anytype, mp: *model.Picture, label: []const u8, action: Action) void {
@@ -116,16 +118,17 @@ fn renameBox(s: *app.State, c: *ui.Context, th: anytype, rp: *model.Picture) voi
         .bg(th.surface)
         .shadowMd();
     defer box.end();
-    ui.text(c, "Rename", .{ .size = 13, .weight = .semibold });
+    const tr = i18n.strings(s.lang);
+    ui.text(c, tr.rename_title, .{ .size = 13, .weight = .semibold });
     const field = ui.textField(c, &s.rename_field, .{ .width = .fill, .size = 13 });
     ui.row(c, .{ .gap = 8, .align_items = .center });
     defer c.end();
     ui.spacer(c);
-    if (ui.button(c, "Cancel", .{ .variant = .ghost, .size = 13 }).clicked) {
+    if (ui.button(c, tr.cancel, .{ .variant = .ghost, .size = 13 }).clicked) {
         s.renaming = null;
         s.rename_field.clear();
     }
-    if (ui.button(c, "Rename", .{ .size = 13 }).clicked) commit(s, rp);
+    if (ui.button(c, tr.rename_title, .{ .size = 13 }).clicked) commit(s, rp);
     if (field.submitted) commit(s, rp);
 }
 

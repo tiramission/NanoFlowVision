@@ -13,6 +13,7 @@ const menu = @import("menu.zig");
 const ops = @import("ops.zig");
 const config = @import("config.zig");
 const watch = @import("watch.zig");
+const i18n = @import("i18n.zig");
 const theme = @import("theme.zig");
 
 /// How much room between and around the pictures.
@@ -29,9 +30,6 @@ const prefetch_behind: f32 = 0.5;
 
 /// What the gallery sorts by.
 pub const SortKey = enum { name, time, size, pixels, stars };
-
-/// The words on the sort control, in the order of `SortKey`.
-const sort_labels = [_][]const u8{ "Name", "Date", "Size", "Pixels", "Stars" };
 
 pub const State = struct {
     gpa: std.mem.Allocator,
@@ -96,6 +94,10 @@ pub const State = struct {
     relist_pending: bool = false,
     /// The folder the settings are kept in, owned.
     settings_dir: ?[]u8 = null,
+    /// The language the interface speaks, and whether the settings panel
+    /// is open.
+    lang: i18n.Lang = .en,
+    settings_open: bool = false,
     /// The large view's zoom (points per picture pixel; null fits) and
     /// how far the picture has been dragged from the middle.
     zoom: ?f32 = null,
@@ -244,12 +246,33 @@ pub const State = struct {
 
     /// Dark or light, as the eye prefers. The window's surface is told
     /// directly; the setting rides along in the config file.
-    pub fn toggleDark(s: *State) void {
-        s.dark = !s.dark;
+    pub fn setDark(s: *State, value: bool) void {
+        s.dark = value;
         if (s.window) |w| {
-            if (w.surface) |surface| surface.theme_override = theme.forDark(s.dark);
+            if (w.surface) |surface| surface.theme_override = theme.forDark(value);
             w.redraw();
         }
+    }
+
+    pub fn toggleDark(s: *State) void {
+        s.setDark(!s.dark);
+        s.saveSettings();
+    }
+
+    /// Writes the settings as they are now: the window's frame, the look,
+    /// what the gallery takes in, the language. Called when a setting
+    /// changes and when the window closes.
+    pub fn saveSettings(s: *State) void {
+        const dir = s.settings_dir orelse return;
+        var st: config.Settings = .{ .dark = s.dark, .recursive = s.recursive, .lang = s.lang };
+        if (s.window) |w| {
+            const f = w.frame();
+            st.x = f.x;
+            st.y = f.y;
+            st.width = f.width;
+            st.height = f.height;
+        }
+        config.save(s.io, dir, st);
     }
 
     /// The folder above the one shown.
@@ -342,7 +365,10 @@ pub const State = struct {
 
     pub fn view(s: *State, c: *ui.Context) void {
         // Dark or light, wherever the eye is.
-        if (c.shortcut(.{ .key = 'd', .ctrl = true })) s.toggleDark();
+        if (c.shortcut(.{ .key = 'd', .ctrl = true })) {
+            s.toggleDark();
+            s.saveSettings();
+        }
         if (s.relist_pending) {
             s.relist_pending = false;
             s.relist();
@@ -362,6 +388,7 @@ pub const State = struct {
     /// as rows with their counts, and the watch's status at the bottom.
     fn viewTree(s: *State, c: *ui.Context) void {
         const k = theme.colors(s.dark);
+        const tr = i18n.strings(s.lang);
         const side = ui.div(c).column().w(214).hFull().bg(k.sidebar).px(10).gap(2);
         defer side.end();
         {
@@ -369,7 +396,7 @@ pub const State = struct {
             defer top.end();
             ui.text(c, "NanoFlowVision", .{ .size = 13, .weight = .bold, .color = k.text });
         }
-        sideSection(c, k, "Folders");
+        sideSection(c, k, tr.folders);
         ui.scroll(c, .{ .width = .fill, .height = .fill, .gap = 2 });
         s.viewFolder(c, k, &s.tree);
         ui.end(c);
@@ -377,16 +404,32 @@ pub const State = struct {
         {
             const row = ui.div(c).row().wFull().itemsCenter().px(8).py(4);
             defer row.end();
-            if (ui.checkbox(c, "Subfolders", &s.recursive)) {
+            if (ui.checkbox(c, tr.subfolders, &s.recursive)) {
                 if (s.current) |folder| folder.loaded = false;
                 s.relist_pending = true;
             }
         }
         {
-            const row = ui.div(c).row().wFull().gap(7).itemsCenter().px(8).pb(6);
+            const row = ui.div(c).row().wFull().gap(7).itemsCenter().px(8).pb(2);
             defer row.end();
             _ = c.leaf(.{ .width = .{ .px = 7 }, .height = .{ .px = 7 }, .radius = 3.5, .background = k.green }, .none, null);
-            ui.text(c, "Watching", .{ .size = 11, .color = k.secondary });
+            ui.text(c, tr.watching, .{ .size = 11, .color = k.secondary });
+        }
+        // The settings, one click away at the sidebar's foot.
+        {
+            var row = ui.div(c).row().wFull().h(30).itemsCenter().gap(9).px(7).rounded(7).control();
+            defer row.end();
+            row = row.hover(k.hover);
+            if (row.clicked()) {
+                s.settings_open = true;
+                c.changed = true;
+            }
+            {
+                const chip = ui.div(c).row().w(20).h(20).center().rounded(6).bg(k.accent.alpha(0.16));
+                defer chip.end();
+                ui.icon(c, "settings", .{ .size = 11, .color = k.accent });
+            }
+            ui.text(c, tr.settings, .{ .size = 13, .color = k.text });
         }
     }
 
@@ -431,16 +474,18 @@ pub const State = struct {
         s.viewToolbar(c);
         s.viewGrid(c);
         menu.view(s, c);
+        if (s.settings_open) s.viewSettings(c);
     }
 
     /// The page's header, as nanomon draws one: the folder's name and its
     /// path on the left, the search and the sort on the right.
     fn viewToolbar(s: *State, c: *ui.Context) void {
         const k = theme.colors(s.dark);
+        const tr = i18n.strings(s.lang);
         const current = s.current;
         const head = ui.div(c).row().wFull().h(52).itemsCenter().gap(8).px(20);
         defer head.end();
-        if (ui.button(c, "Up", .{ .variant = .ghost, .size = 13 }).clicked) s.goUp();
+        if (ui.button(c, tr.up, .{ .variant = .ghost, .size = 13 }).clicked) s.goUp();
         if (current) |folder| {
             const t = ui.div(c).column().gap(1).clip();
             defer t.end();
@@ -449,9 +494,10 @@ pub const State = struct {
         }
         ui.spacer(c);
         // The search: what matches stays, the rest waits its turn.
-        const field = ui.textField(c, &s.search, .{ .placeholder = "Search…", .width = .{ .px = 190 }, .size = 13 });
+        const field = ui.textField(c, &s.search, .{ .placeholder = tr.search_placeholder, .width = .{ .px = 190 }, .size = 13 });
         if (field.changed) s.orderChanged();
         // The sort, and the way it goes.
+        const sort_labels = [_][]const u8{ tr.sort_name, tr.sort_date, tr.sort_size, tr.sort_pixels, tr.sort_stars };
         var selected: usize = @backingInt(s.sort);
         if (ui.segmented(c, &sort_labels, &selected)) {
             s.sort = @fromBackingInt(@intCast(selected));
@@ -463,16 +509,18 @@ pub const State = struct {
             s.orderChanged();
         }
         if (current) |folder| {
-            if (s.shown.len == folder.pictures.len) {
-                ui.textf(c, .{ .size = 12, .color = k.secondary }, "{d} pictures", .{folder.pictures.len});
-            } else {
-                ui.textf(c, .{ .size = 12, .color = k.secondary }, "{d} of {d} pictures", .{ s.shown.len, folder.pictures.len });
-            }
+            const count = if (s.shown.len == folder.pictures.len)
+                i18n.pictures(c.alloc(), s.lang, folder.pictures.len)
+            else
+                i18n.picturesOf(c.alloc(), s.lang, s.shown.len, folder.pictures.len);
+            ui.text(c, count, .{ .size = 12, .color = k.secondary });
         }
     }
 
     /// The pictures, in columns: only those in view are built.
     fn viewGrid(s: *State, c: *ui.Context) void {
+        const th = c.theme;
+        const tr = i18n.strings(s.lang);
         // Esc takes the menu or the rename box away; a paste lands the
         // clipboard's files in this folder.
         if (c.shortcut(.{ .key = ui.Shortcut.escape })) {
@@ -525,7 +573,7 @@ pub const State = struct {
             // The workers are on the headers: another frame is wanted as
             // soon as they answer, so the wait is drawn.
             c.animationFrame();
-            ui.label(c, c.print("measuring {d} of {d}…", .{ measured, pictures.len }));
+            ui.text(c, i18n.measuring(c.alloc(), s.lang, measured, pictures.len), .{ .size = 13, .color = th.muted });
             return;
         }
 
@@ -539,9 +587,9 @@ pub const State = struct {
             ui.row(c, .{ .width = .fill, .height = .{ .px = view_h }, .align_items = .center, .justify = .center });
             defer c.end();
             if (pictures.len == 0) {
-                ui.label(c, "No pictures here");
+                ui.label(c, tr.no_pictures);
             } else {
-                ui.label(c, c.print("No matches for \"{s}\"", .{s.search.text()}));
+                ui.text(c, i18n.noMatches(c.alloc(), s.lang, s.search.text()), .{ .size = 13, .color = th.muted });
             }
             return;
         }
@@ -590,6 +638,67 @@ pub const State = struct {
         // frame is wanted as soon as each one lands -- the view is a
         // function of the state, and the state is still arriving.
         if (waiting > 0) c.animationFrame();
+    }
+
+    /// The settings, on a card over the page: the language, the look, and
+    /// what the gallery takes in. A change lands in the settings file the
+    /// moment it is made.
+    fn viewSettings(s: *State, c: *ui.Context) void {
+        const k = theme.colors(s.dark);
+        const tr = i18n.strings(s.lang);
+        // A click that misses the card closes it.
+        {
+            const sheet = ui.div(c).absolute().offset(0, 0).w(c.size.w).h(c.size.h);
+            defer sheet.end();
+            const it = ui.pressable(c, .{ .width = .fill, .height = .fill }, null);
+            defer c.end();
+            if (it.clicked) {
+                s.settings_open = false;
+                c.changed = true;
+            }
+        }
+        const box = ui.div(c).absolute()
+            .offset(@max(0, (c.size.w - 380) / 2), @max(0, (c.size.h - 240) / 2))
+            .w(380)
+            .p(16)
+            .gap(12)
+            .rounded(10)
+            .bg(k.card)
+            .border(k.border)
+            .shadowMd();
+        defer box.end();
+        ui.text(c, tr.settings, .{ .size = 15, .weight = .bold, .color = k.text });
+
+        // The language, each written as its speakers write it.
+        ui.row(c, .{ .width = .fill, .gap = 10, .align_items = .center });
+        defer c.end();
+        ui.text(c, tr.language, .{ .size = 13, .color = k.text });
+        ui.spacer(c);
+        const lang_names = [_][]const u8{ i18n.ownName(.en), i18n.ownName(.zh) };
+        var li: usize = @backingInt(s.lang);
+        if (ui.segmented(c, &lang_names, &li)) {
+            s.lang = @fromBackingInt(@intCast(li));
+            s.saveSettings();
+            c.changed = true;
+        }
+
+        if (ui.checkbox(c, tr.dark_mode, &s.dark)) {
+            s.setDark(s.dark);
+            s.saveSettings();
+        }
+        if (ui.checkbox(c, tr.subfolders, &s.recursive)) {
+            if (s.current) |folder| folder.loaded = false;
+            s.relist_pending = true;
+            s.saveSettings();
+        }
+
+        ui.row(c, .{ .width = .fill, .align_items = .center });
+        defer c.end();
+        ui.spacer(c);
+        if (ui.button(c, tr.close, .{ .size = 13 }).clicked) {
+            s.settings_open = false;
+            c.changed = true;
+        }
     }
 
     fn viewPicture(s: *State, c: *ui.Context, pic: *model.Picture, place: masonry.Placement) void {

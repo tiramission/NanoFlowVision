@@ -9,6 +9,7 @@ const builtin = @import("builtin");
 const nanoui = @import("nanoui");
 const app = @import("app.zig");
 const config = @import("config.zig");
+const i18n = @import("i18n.zig");
 const theme = @import("theme.zig");
 
 const app_name = "NanoFlowVision";
@@ -28,6 +29,7 @@ pub fn main(init: std.process.Init) !void {
     defer state.deinit();
     state.dark = settings.dark;
     state.recursive = settings.recursive;
+    state.lang = settings.lang;
     state.settings_dir = settings.dir_path;
 
     const window = try nanoui_app.newWindow(.{
@@ -46,30 +48,21 @@ pub fn main(init: std.process.Init) !void {
 }
 
 /// The settings, and the folder they live in (owned, when there is one).
-fn loadSettings(gpa: std.mem.Allocator, io: std.Io) struct { dir_path: ?[]u8, dark: bool, recursive: bool, x: ?f64, y: ?f64, width: f64, height: f64 } {
+fn loadSettings(gpa: std.mem.Allocator, io: std.Io) struct { dir_path: ?[]u8, dark: bool, recursive: bool, lang: i18n.Lang, x: ?f64, y: ?f64, width: f64, height: f64 } {
     const dir_path: ?[]u8 = nanoui.path(gpa, .data, app_name) catch null;
     if (dir_path) |d| {
         std.Io.Dir.createDirAbsolute(io, d, .default_file) catch {};
         const s = config.load(gpa, io, d);
-        return .{ .dir_path = d, .dark = s.dark, .recursive = s.recursive, .x = s.x, .y = s.y, .width = s.width, .height = s.height };
+        return .{ .dir_path = d, .dark = s.dark, .recursive = s.recursive, .lang = s.lang, .x = s.x, .y = s.y, .width = s.width, .height = s.height };
     }
-    return .{ .dir_path = null, .dark = false, .recursive = false, .x = null, .y = null, .width = 1280, .height = 800 };
+    return .{ .dir_path = null, .dark = false, .recursive = false, .lang = .en, .x = null, .y = null, .width = 1280, .height = 800 };
 }
 
 /// The window is closing: the way it sat is remembered.
 fn saveFromWindow(ctx: *anyopaque, window: *nanoui.Window) void {
+    _ = window;
     const state: *app.State = @ptrCast(@alignCast(ctx));
-    const dir_path = state.settings_dir orelse return;
-    const f = window.frame();
-    state.window = null;
-    config.save(state.io, dir_path, .{
-        .x = f.x,
-        .y = f.y,
-        .width = f.width,
-        .height = f.height,
-        .dark = state.dark,
-        .recursive = state.recursive,
-    });
+    state.saveSettings();
 }
 
 /// The folder to show.

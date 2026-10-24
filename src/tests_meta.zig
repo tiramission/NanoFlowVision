@@ -9,6 +9,10 @@ const app = @import("app.zig");
 const exif = @import("exif.zig");
 const xmp = @import("xmp.zig");
 const theme = @import("theme.zig");
+const config = @import("config.zig");
+const i18n = @import("i18n.zig");
+const ops = @import("ops.zig");
+const thumbs = @import("thumbs.zig");
 const tests_mod = @import("tests.zig");
 
 /// The bytes of a jpeg that carries the fixture's exif: enough of one for
@@ -170,4 +174,81 @@ test "snapshot: the exif panel with stars and tags" {
     t.doubleClick(where.x + where.w / 2, where.y + where.h / 2);
     t.settle(0.3);
     t.screenshot("docs/app-rating.png") catch {};
+}
+
+test "snapshot: chinese glyphs render" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSample(gpa);
+    defer sample.deinit(gpa);
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600 });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+
+    // The search field renders what is typed: Chinese goes through the
+    // same shaping as everything else.
+    state.search.set("搜索图片 深色 设置");
+    t.frame();
+    t.screenshot("docs/cjk-probe.png") catch {};
+    try std.testing.expect(t.containsText("搜索图片 深色 设置"));
+}
+
+test "the settings panel switches the language, and it persists" {
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    // A settings folder of its own: the panel's changes land there.
+    std.Io.Dir.createDirAbsolute(std.testing.io, "C:/Users/jaign/AppData/Local/Temp/nfv-settings-test", .default_file) catch {};
+    const dir_path = "C:/Users/jaign/AppData/Local/Temp/nfv-settings-test";
+
+    var sample = try tests_mod.makeSample(gpa);
+    defer sample.deinit(gpa);
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    const owned_dir = try gpa.dupe(u8, dir_path);
+    defer gpa.free(owned_dir);
+    state.settings_dir = owned_dir;
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600 });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+
+    // The sidebar's foot has the settings; open it.
+    try t.clickText("Settings");
+    t.settle(0.1);
+    try std.testing.expect(state.settings_open);
+
+    // The language, to Chinese: the sort speaks Chinese right away.
+    try t.clickText("中文");
+    t.settle(0.1);
+    try std.testing.expectEqual(i18n.Lang.zh, state.lang);
+    try t.clickText("关闭");
+    t.settle(0.1);
+    try std.testing.expect(!state.settings_open);
+    try std.testing.expect(t.hasText("名称"));
+    try std.testing.expect(t.hasText("上级"));
+
+    // And the file on disk says so.
+    const saved = config.load(gpa, std.testing.io, dir_path);
+    try std.testing.expectEqual(i18n.Lang.zh, saved.lang);
+}
+
+test "snapshot: the interface in chinese" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSample(gpa);
+    defer sample.deinit(gpa);
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    state.lang = .zh;
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600 });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+    t.settle(0.1);
+    t.screenshot("docs/app-zh.png") catch {};
+    try std.testing.expect(t.containsText("张图片"));
 }
