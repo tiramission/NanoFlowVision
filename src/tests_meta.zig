@@ -252,3 +252,51 @@ test "snapshot: the interface in chinese" {
     t.screenshot("docs/app-zh.png") catch {};
     try std.testing.expect(t.containsText("张图片"));
 }
+
+test "snapshot: the settings panel open" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSample(gpa);
+    defer sample.deinit(gpa);
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    state.lang = .zh;
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600 });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try t.clickText("设置");
+    t.settle(0.1);
+    t.screenshot("docs/settings-open.png") catch {};
+}
+
+test "snapshot: the picture menu and the dark settings" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSample(gpa);
+    defer sample.deinit(gpa);
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    state.lang = .zh;
+    state.dark = true;
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600, .theme = theme.forDark(true) });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+
+    // The menu, opened from the picture's corner.
+    t.frame();
+    t.frame();
+    const where = state.first_picture orelse return error.NoPictureOnScreen;
+    t.moveTo(where.x + where.w / 2, where.y + where.h / 2);
+    t.frame();
+    try t.clickText("⋯");
+    t.settle(0.1);
+    t.screenshot("docs/menu-zh.png") catch {};
+    state.menu_for = null;
+    t.frame();
+
+    // The dark settings card.
+    try t.clickText("设置");
+    t.settle(0.1);
+    t.screenshot("docs/settings-dark.png") catch {};
+}

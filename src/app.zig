@@ -378,9 +378,13 @@ pub const State = struct {
             return;
         }
         ui.row(c, .{ .width = .fill, .height = .fill });
-        defer ui.end(c);
         s.viewTree(c);
         s.viewGallery(c);
+        ui.end(c);
+        // The overlays hang off the window itself: an absolute box inside
+        // them positions against the window, not against a column.
+        menu.view(s, c);
+        if (s.settings_open) s.viewSettings(c);
     }
 
     /// The folders, down the left.
@@ -473,8 +477,6 @@ pub const State = struct {
         defer ui.end(c);
         s.viewToolbar(c);
         s.viewGrid(c);
-        menu.view(s, c);
-        if (s.settings_open) s.viewSettings(c);
     }
 
     /// The page's header, as nanomon draws one: the folder's name and its
@@ -646,32 +648,26 @@ pub const State = struct {
     fn viewSettings(s: *State, c: *ui.Context) void {
         const k = theme.colors(s.dark);
         const tr = i18n.strings(s.lang);
-        // A click that misses the card closes it.
+        // The layer covers the window; the sheet under the card takes the
+        // clicks that miss it; the card is a flex child, centered.
+        const layer = ui.div(c).absolute().offset(0, 0).sizeFull();
+        defer layer.end();
         {
-            const sheet = ui.div(c).absolute().offset(0, 0).w(c.size.w).h(c.size.h);
+            const sheet = ui.div(c).absolute().offset(0, 0).sizeFull().control();
             defer sheet.end();
-            const it = ui.pressable(c, .{ .width = .fill, .height = .fill }, null);
-            defer c.end();
-            if (it.clicked) {
+            if (sheet.clicked()) {
                 s.settings_open = false;
                 c.changed = true;
             }
         }
-        const box = ui.div(c).absolute()
-            .offset(@max(0, (c.size.w - 380) / 2), @max(0, (c.size.h - 240) / 2))
-            .w(380)
-            .p(16)
-            .gap(12)
-            .rounded(10)
-            .bg(k.card)
-            .border(k.border)
-            .shadowMd();
-        defer box.end();
+        const center = ui.div(c).row().sizeFull().itemsCenter().justifyCenter();
+        defer center.end();
+        const card = ui.div(c).column().w(380).p(16).gap(12).rounded(10).bg(k.card).border(k.border).shadowMd();
+        defer card.end();
         ui.text(c, tr.settings, .{ .size = 15, .weight = .bold, .color = k.text });
 
         // The language, each written as its speakers write it.
-        ui.row(c, .{ .width = .fill, .gap = 10, .align_items = .center });
-        defer c.end();
+        ui.row(c, .{ .width = .{ .px = 348 }, .gap = 10, .align_items = .center });
         ui.text(c, tr.language, .{ .size = 13, .color = k.text });
         ui.spacer(c);
         const lang_names = [_][]const u8{ i18n.ownName(.en), i18n.ownName(.zh) };
@@ -681,6 +677,7 @@ pub const State = struct {
             s.saveSettings();
             c.changed = true;
         }
+        ui.end(c);
 
         if (ui.checkbox(c, tr.dark_mode, &s.dark)) {
             s.setDark(s.dark);
@@ -692,15 +689,14 @@ pub const State = struct {
             s.saveSettings();
         }
 
-        ui.row(c, .{ .width = .fill, .align_items = .center });
-        defer c.end();
+        ui.row(c, .{ .width = .{ .px = 348 }, .align_items = .center });
         ui.spacer(c);
         if (ui.button(c, tr.close, .{ .size = 13 }).clicked) {
             s.settings_open = false;
             c.changed = true;
         }
+        ui.end(c);
     }
-
     fn viewPicture(s: *State, c: *ui.Context, pic: *model.Picture, place: masonry.Placement) void {
         const th = c.theme;
         const box = ui.div(c).absolute().offset(place.x, place.y).w(place.w).h(place.h).rounded(8);
@@ -723,9 +719,20 @@ pub const State = struct {
             defer corner.end();
             if (ui.button(c, "⋯", .{ .variant = .secondary, .size = 12 }).clicked) {
                 s.menu_for = pic;
+                // The menu hangs by its right edge from the picture's
+                // right corner, kept inside the window: the menu is about
+                // 200 wide and 210 tall.
                 s.menu_at = .{
-                    .x = s.grid_x + place.x + place.w - 214,
-                    .y = s.grid_y + place.y - s.grid_offset + 44,
+                    .x = std.math.clamp(
+                        s.grid_x + place.x + place.w - 200,
+                        8,
+                        @max(8, c.size.w - 208),
+                    ),
+                    .y = std.math.clamp(
+                        s.grid_y + place.y - s.grid_offset + 44,
+                        8,
+                        @max(8, c.size.h - 218),
+                    ),
                     .w = 0,
                     .h = 0,
                 };

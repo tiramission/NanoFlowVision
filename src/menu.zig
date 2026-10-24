@@ -41,12 +41,10 @@ pub fn view(s: *app.State, c: *ui.Context) void {
     const mp = s.menu_for orelse return;
 
     // A click that misses the menu closes it.
-    const sheet = ui.div(c).absolute().offset(0, 0).w(c.size.w).h(c.size.h);
-    defer sheet.end();
     {
-        const it = ui.pressable(c, .{ .width = .fill, .height = .fill }, null);
-        defer c.end();
-        if (it.clicked) s.menu_for = null;
+        const sheet = ui.div(c).absolute().offset(0, 0).sizeFull().control();
+        defer sheet.end();
+        if (sheet.clicked()) s.menu_for = null;
     }
 
     const menu = ui.div(c).absolute()
@@ -69,7 +67,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
 
 fn item(s: *app.State, c: *ui.Context, th: anytype, mp: *model.Picture, label: []const u8, action: Action) void {
     const it = ui.pressable(c, .{
-        .width = .fill,
+        .width = .{ .px = 178 },
         .padding = .xy(10, 6),
         .radius = 6,
         .control = true,
@@ -98,12 +96,10 @@ fn item(s: *app.State, c: *ui.Context, th: anytype, mp: *model.Picture, label: [
 /// The box that renames a picture: its name in a field, or a click on
 /// the rest of the window to leave it as it is.
 fn renameBox(s: *app.State, c: *ui.Context, th: anytype, rp: *model.Picture) void {
-    const sheet = ui.div(c).absolute().offset(0, 0).w(c.size.w).h(c.size.h);
-    defer sheet.end();
     {
-        const it = ui.pressable(c, .{ .width = .fill, .height = .fill }, null);
-        defer c.end();
-        if (it.clicked) {
+        const sheet = ui.div(c).absolute().offset(0, 0).sizeFull().control();
+        defer sheet.end();
+        if (sheet.clicked()) {
             s.renaming = null;
             s.rename_field.clear();
         }
@@ -120,8 +116,8 @@ fn renameBox(s: *app.State, c: *ui.Context, th: anytype, rp: *model.Picture) voi
     defer box.end();
     const tr = i18n.strings(s.lang);
     ui.text(c, tr.rename_title, .{ .size = 13, .weight = .semibold });
-    const field = ui.textField(c, &s.rename_field, .{ .width = .fill, .size = 13 });
-    ui.row(c, .{ .gap = 8, .align_items = .center });
+    const field = ui.textField(c, &s.rename_field, .{ .width = .{ .px = 308 }, .size = 13 });
+    ui.row(c, .{ .width = .{ .px = 308 }, .gap = 8, .align_items = .center });
     defer c.end();
     ui.spacer(c);
     if (ui.button(c, tr.cancel, .{ .variant = .ghost, .size = 13 }).clicked) {
