@@ -36,7 +36,7 @@ jobs:
 
       - name: Build (ReleaseFast)
         shell: bash
-        run: zig build -Doptimize=ReleaseFast
+        run: zig build -Doptimize=ReleaseFast -Dcpu=x86_64_v2
 
       # The build means nothing if its window comes up blank: render the
       # app offscreen over the test pictures and keep the picture.
