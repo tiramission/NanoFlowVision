@@ -39,17 +39,25 @@ fn viewToolbar(s: *app.State, c: *ui.Context) void {
     const current = s.current;
     const head = ui.div(c).row().wFull().h(52).itemsCenter().gap(8).px(20);
     defer head.end();
-    if (ui.button(c, tr.up, .{ .variant = .ghost, .size = 13 }).clicked) s.goUp();
+    if (ui.button(c, tr.up, .{ .variant = .ghost, .size = 13, .icon = "arrow.up" }).clicked) s.goUp();
     if (current) |folder| {
-        const t = ui.div(c).column().gap(1).clip();
+        // The name and where it lies: the column grows to what the row
+        // has left, and the path clips rather than pushing the rest away.
+        const t = ui.div(c).column().wFull().grow().gap(1).clip();
         defer t.end();
         ui.text(c, folder.name, .{ .size = 15, .weight = .bold, .color = k.text });
         ui.text(c, folder.path, .{ .size = 11, .color = k.secondary });
     }
-    ui.spacer(c);
-    // The search: what matches stays, the rest waits its turn.
-    const field = ui.textField(c, &s.search, .{ .placeholder = tr.search_placeholder, .width = .{ .px = 190 }, .size = 13 });
-    if (field.changed) s.orderChanged();
+    // The search, with its glass in the frame: what matches stays, the
+    // rest waits its turn. The frame stretches when the window has room
+    // and keeps to its base when it has not.
+    {
+        const frame = ui.div(c).row().h(30).itemsCenter().gap(7).px(10).grow().maxW(206).rounded(8).bg(k.well).border(k.border);
+        defer frame.end();
+        ui.icon(c, "magnifyingglass", .{ .size = 12, .color = k.tertiary });
+        const field = ui.textField(c, &s.search, .{ .placeholder = tr.search_placeholder, .width = .{ .px = 150 }, .size = 13, .bare = true });
+        if (field.changed) s.orderChanged();
+    }
     // The sort, and the way it goes.
     const sort_labels = [_][]const u8{ tr.sort_name, tr.sort_date, tr.sort_size, tr.sort_pixels, tr.sort_stars };
     var selected: usize = @backingInt(s.sort);
@@ -58,15 +66,19 @@ fn viewToolbar(s: *app.State, c: *ui.Context) void {
         s.sort_ascending = s.sort == .name;
         s.orderChanged();
     }
-    if (ui.button(c, if (s.sort_ascending) "↑" else "↓", .{ .variant = .ghost, .size = 13 }).clicked) {
+    if (ui.button(c, "", .{ .variant = .ghost, .size = 13, .icon = if (s.sort_ascending) "arrow.up" else "arrow.down" }).clicked) {
         s.sort_ascending = !s.sort_ascending;
         s.orderChanged();
     }
     if (current) |folder| {
+        // The count, kept to its own narrow clip so a narrow window cuts
+        // it short instead of pushing the toolbar out.
         const count = if (s.shown.len == folder.pictures.len)
             i18n.pictures(c.alloc(), s.lang, folder.pictures.len)
         else
             i18n.picturesOf(c.alloc(), s.lang, s.shown.len, folder.pictures.len);
+        const cbox = ui.div(c).column().w(66).clip();
+        defer cbox.end();
         ui.text(c, count, .{ .size = 12, .color = k.secondary });
     }
 }
@@ -127,6 +139,9 @@ fn viewGrid(s: *app.State, c: *ui.Context) void {
         // The workers are on the headers: another frame is wanted as
         // soon as they answer, so the wait is drawn.
         c.animationFrame();
+        const wait = ui.div(c).row().itemsCenter().gap(8).px(4).py(4);
+        defer wait.end();
+        ui.icon(c, "circle.dotted", .{ .size = 14, .color = th.muted });
         ui.text(c, i18n.measuring(c.alloc(), s.lang, measured, pictures.len), .{ .size = 13, .color = th.muted });
         return;
     }
@@ -140,6 +155,9 @@ fn viewGrid(s: *app.State, c: *ui.Context) void {
         s.built = 0;
         ui.row(c, .{ .width = .fill, .height = .{ .px = view_h }, .align_items = .center, .justify = .center });
         defer c.end();
+        const empty = ui.div(c).column().itemsCenter().gap(10);
+        defer empty.end();
+        ui.icon(c, "photo", .{ .size = 34, .color = th.muted });
         if (pictures.len == 0) {
             ui.label(c, tr.no_pictures);
         } else {

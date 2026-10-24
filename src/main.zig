@@ -11,6 +11,7 @@ const app = @import("app.zig");
 const config = @import("config.zig");
 const i18n = @import("i18n.zig");
 const theme = @import("theme.zig");
+const winicon = @import("winicon.zig");
 
 const app_name = "NanoFlowVision";
 
@@ -53,6 +54,11 @@ fn runApp(nanoui_app: *nanoui.App, init: std.process.Init) !void {
     });
     state.window = window;
     state.pool.window = window;
+    // The exe's icon rides in its resources; the running window is told
+    // of it here, for the title bar's corner and the taskbar.
+    if (builtin.os.tag == .windows) {
+        if (window.hwnd) |hwnd| winicon.apply(@ptrCast(hwnd));
+    }
     try nanoui_app.run();
 }
 

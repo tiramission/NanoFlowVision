@@ -229,6 +229,9 @@ pub fn view(s: *app.State, c: *ui.Context) void {
     } else {
         // The worker is still on it: another frame as soon as it lands.
         c.animationFrame();
+        const wait = ui.div(c).row().itemsCenter().gap(8).px(4).py(4);
+        defer wait.end();
+        ui.icon(c, "circle.dotted", .{ .size = 14, .color = th.muted });
         ui.text(c, i18n.strings(s.lang).loading, .{ .size = 14, .color = th.muted });
     }
     // What the picture says about itself, in the corner: its camera,

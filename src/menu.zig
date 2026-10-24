@@ -31,6 +31,19 @@ pub fn paste(s: *app.State) void {
 
 const Action = enum { open_large, open_system, reveal, copy, rename, trash };
 
+/// The mark each action carries in the menu, from the same line-icon
+/// set the rest of the interface speaks in.
+fn symbol(action: Action) []const u8 {
+    return switch (action) {
+        .open_large => "photo",
+        .open_system => "arrow.right.square",
+        .reveal => "folder",
+        .copy => "doc.on.doc",
+        .rename => "pencil",
+        .trash => "trash",
+    };
+}
+
 /// The menu and the rename box, over the gallery they belong to.
 pub fn view(s: *app.State, c: *ui.Context) void {
     const th = c.theme;
@@ -68,12 +81,15 @@ pub fn view(s: *app.State, c: *ui.Context) void {
 fn item(s: *app.State, c: *ui.Context, th: anytype, mp: *model.Picture, label: []const u8, action: Action) void {
     const it = ui.pressable(c, .{
         .width = .{ .px = 178 },
+        .direction = .row,
         .padding = .xy(10, 6),
         .radius = 6,
+        .gap = 9,
         .control = true,
         .align_items = .center,
     }, th.surface_hover);
     defer c.end();
+    ui.icon(c, symbol(action), .{ .size = 13, .color = th.muted });
     ui.text(c, label, .{ .size = 13 });
     if (it.clicked) {
         s.menu_for = null;
