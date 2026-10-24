@@ -226,7 +226,7 @@ EXIF 已实现（2026-10-24，`feat/stage4`）：
 ## 图标与记号（2026-10-24 傍晚）
 
 - **窗口有了自己的图标**。exe 里的资源只给资源管理器看；标题栏和任务栏的图标要在窗口
-  建好时递进去（WM_SETICON，`src/winicon.zig`），大小各一枚。
+  建好时递进去（WM_SETICON，`src/win.zig`），大小各一枚。
 - **界面里的图标统一成一套语言**：nanoui 的线稿图集（Lucide 风格，SF Symbols 命名）。
   侧栏顶上是一枚品牌角标，文件夹行有了折叠的 chevron（折叠状态靠把下一层目录顺带列出
   来得知，不解码任何东西），设置行用的是真正的滑杆（此前写了个不存在的名字，静默画空），
@@ -234,6 +234,24 @@ EXIF 已实现（2026-10-24，`feat/stage4`）：
   量尺寸中、加载中都有了像样的等待图形。
 - **工具栏不再把窄窗口挤爆**：文件夹的长路径吃剩余空间并裁剪，计数收在自己的小裁剪盒里，
   搜索框有弹性的宽度。
+
+## 自定义目录与对话框（2026-10-24 晚）✅
+
+- **打开任意目录**：侧栏底部的"打开目录"起系统目录选择框，选中的文件夹成为新的根
+  （树重建、监视器迁移、画廊就位）；根随设置持久化，下次启动接着看（命令行参数优先）。
+- **对话框走 [nfd-zig](https://github.com/fabioarnold/nfd-zig)**。手写 COM 的教训：
+  IFileDialog 的真实 vtable 比记忆中多两个方法（GetFolder、GetFileName），漏掉后从槽 14
+  起全部错位——SetTitle 实调 SetFileName、GetResult 实调 SetOkButtonLabel（S_OK 但不写
+  出参 → 解 null → 静默退出）。**权威顺序在 zig 自带的 mingw 头文件里**，写 COM 结构体
+  前先数头文件。
+- **两条重入规则（比对话框本身更重要）**：
+  1. **模态对话框永远不在 view() 构建中途打开**——对话框的消息泵运行期间，动画 tick
+     定时器会重入 view()，把共享 UI 栈清空；确认后挂起的帧在空栈上恢复。点击只置
+     `dialog_pending` 并安排 `nanoui.App.after(0, …)`，对话框由消息循环在帧外打开。
+  2. **主线程回调（onMain/after 的分发）只置标志**——watcher 的变化回调曾直接 relist，
+     在对话框泵里就是一次"重建正在被遍历的树"。重列、换根一律等帧顶。
+- **根随设置持久化**（settings.txt 的 `root = <路径>`）暴露并修掉一个老 bug：启动的
+  首次列目录跑在 `state.recursive` 赋值之前——勾着子文件夹启动时子文件夹的照片不进画廊。
 
 ## 阶段 9 · 布局与选择（2026-10-24 修订时新增）
 
@@ -283,6 +301,20 @@ FlowVision 还有 `justified`（自适应行）和 `grid`（网格）两种布�
 - **macOS**：`src/imageio.zig` 编译过声明未上机实测；目录监听要 FSEvents；ops.zig 的
   文件剪贴板（CF_HDROP 的 mac 等价物）是 TODO。
 - **Linux**：目录监听要 inotify；解码仍是 zigimg 兜底（接受它的内存）。
+
+## 造轮子清单（能用库的地方不用库，2026-10-24 审计）
+
+原则：**有成熟的 Zig 库就用库；没有的，手写部分必须小、可数、有据可查。**
+
+| 手写的 | 为什么手写 | 换库的路径 |
+|---|---|---|
+| 目录/文件对话框 | 曾手写 COM vtable，错位即崩 | ✅ 已换 [nfd-zig](https://github.com/fabioarnold/nfd-zig) |
+| `src/win.zig`（窗口图标、最大化状态） | 三个 extern，太小不值得引依赖 | 长大了就迁 [zig-win32](https://github.com/marlersoft/zig-win32)（全量 Win32 常量/结构/接口绑定） |
+| `src/watch.zig`（ReadDirectoryChangesW） | Zig 生态没有成熟的跨平台 watcher | macOS/Linux 各自实现时评估 notify 类库；Win32 部分可随 zig-win32 收编 |
+| `src/wic.zig`（WIC 的 COM 调用） | zig-win32 有 WIC 接口绑定；现路径经过 1280 次解码压测 | 迁移到 zig-win32 的接口绑定，消掉手数槽位的整类风险（债务，非急务） |
+| `src/exif.zig` / `src/xmp.zig` | Zig 生态没有成熟的 EXIF/XMP 读写库；写回要"重建段、原子替换" | 暂无；C 的 libexif/exiv2 走 build 集成本高，不值得 |
+| `src/masonry.zig` / `src/thumbs.zig` | 这是本项目的核心，不是轮子 | — |
+| `src/config.zig`（key = value 行式） | 刻意人选可读可改，std.json 反而多余 | — |
 
 ## 明确不做的
 

@@ -27,8 +27,8 @@ zig build test                 # the tests
 zig-out/bin/nanoflowvision.exe --nanoui-snapshot=shot.png --nanoui-wait=2
 ```
 
-The app shows the folder named on the command line, or the user's Pictures,
-or the folder it was started in.
+The app shows the folder named on the command line, or the folder of the
+last visit, or the user's Pictures, or the folder it was started in.
 
 ## Rules
 
@@ -39,14 +39,26 @@ or the folder it was started in.
   everything each frame; widgets report input as they're drawn
   (`if (ui.button(c, "Save", .{}).clicked) …`).
 - **Every behavior gets a test** in `src/tests.zig`: `t.clickText`,
-  `t.doubleClick`, `t.hasText`, `t.screenshot("/tmp/x.png")`.
+  `t.doubleClick`, `t.hasText`, `t.screenshot("/tmp/x.png")`. `hasText`
+  proves a node exists, not that it is visible — for anything that can be
+  painted over, clipped, or laid out wrong, assert the rect or keep a
+  screenshot.
 - **No file is over 600 lines**, as in nanoui itself.
+- **A modal dialog never opens inside a frame's build.** Clicks only set a
+  flag and schedule `nanoui.App.after(0, …)`; the dialog opens from that
+  callback, outside any build, and the choice waits at the top of the next
+  frame (see `openFolderDialog` in `src/app.zig`).
+- **Prefer a mature library over a new wheel.** Folder dialogs are
+  [nfd-zig](https://github.com/fabioarnold/nfd-zig); platform glue lives in
+  `src/win.zig`. If a hand-written vtable or extern is ever needed, count
+  its slots against the mingw headers shipped with zig
+  (`lib/libc/include/any-windows-any/*.h`) before trusting it.
 
 ## Layout
 
 ```
 build.zig       the app, `run` and `test` steps
-build.zig.zon   nanoui and zigimg, pinned
+build.zig.zon   nanoui, zigimg and nfd, pinned
 src/main.zig    the window, and the folder to show
 src/app.zig     the state and its view: tree, the overlays, the settings
 src/gallery.zig the gallery: toolbar, the grid of pictures, their menu corner
@@ -66,6 +78,7 @@ src/i18n.zig     the interface's words, in English and Chinese
 src/watch.zig    the folder watched, so the disk's changes arrive by themselves
 src/masonry.zig  where each picture sits: columns of pictures
 src/thumbs.zig   the cache and the workers that fill it
+src/win.zig      Windows glue: the window's icon, whether it is maximized
 src/tests.zig    the view, drawn offscreen, and the pictures it decodes
 src/tests_meta.zig  the tests for what goes into the picture files
 ```

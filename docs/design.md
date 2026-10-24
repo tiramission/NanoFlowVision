@@ -51,10 +51,25 @@ nanoui Theme 槽位的映射照 nanomon 的 `ui()`：`background=page`、`surfac
 | 卡片 | p(16) rounded(10) border |
 | 字号 | 侧栏名 13 bold · 页标题 15 bold · 副标题 11 · 正文 13 · 尾数 11 mono |
 
+## 图标语言
+
+图标统一走 nanoui 的线稿图集（`ui.icon`，Lucide 风格、SF Symbols 命名、24 网格圆头
+笔画），**名字必须先对过图集**——不存在的名字静默画空。尺寸 10–14；侧栏/菜单用
+secondary 或 accent，chip 底为强调色 16%。两处例外：照片的 ⋯ 角标是黑 55% 白字
+（任何照片上都读得清），大图的星级是内容本身（★☆ 文本）。
+
 ## 组件规格
 
-- **侧栏**：名称头（52）→ 分组标签（11 semibold tertiary）→ 文件夹行（图标 chip + 名字 +
-  等宽计数）→ Subfolders 复选框 → 状态行（绿点 + Watching）。
-- **页头**：Up 按钮 + 标题/路径列 + 搜索框 + 排序分段 + 方向 + 计数。
+- **侧栏**：品牌行（22 琥珀圆角角标内嵌 photo 图标 + 名称 13 bold）→ 分组标签（11
+  semibold tertiary）→ 文件夹行（折叠 chevron 10 tertiary + 图标 chip + 名字 + 等宽
+  计数；chevron 自占 16 宽的可点区，点击只折叠不打开）→ 打开目录行（folder chip）→
+  Subfolders 复选框 → 状态行（绿点 + Watching）→ 设置行（slider.horizontal.3 chip）。
+- **页头**：`↑ 上级`（图标 + 文字）+ 标题/路径列（吃剩余空间并裁剪）+ 搜索框
+  （well 底 + 边框 + 放大镜 + bare 输入域，基准 189 最宽 206）+ 排序分段 + 方向
+  （chevron.up/down 图标钮）+ 计数（66 定宽裁剪盒）。
 - **大图面板**：黑 45% scrim、圆角 10、白系文字——照片可明可暗，面板自己负责可读性。
-- **空状态**：居中 secondary 文案。
+  右下角一枚同款纱底的缩放 chip **常驻**：适应窗口时明说，缩放后显示百分比；锚定窗口
+  不随图走（与照片框分开绘制）。
+- **照片角标**：右上 ⋯ 黑 55% chip，悬停出现，绘制在像素之后（像素会盖住先画的）。
+- **空状态**：34 的 photo 图标 + 居中 secondary 文案；量尺寸中/加载中是
+  circle.dotted + 文字。

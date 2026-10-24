@@ -19,7 +19,7 @@
 - **瀑布流画廊**：每张照片放进当前最矮的那一列，高度按宽高比算。宽高比只从文件头读，不解码像素，一万个文件也立刻成形。
 - **后台解码**：缩略图由工作线程解码，界面不等，没就绪的位置先放一张底色卡片。
 - **EXIF 方向**：竖拍的照片立着显示，布局也是竖的。Windows 上 WIC 在解码时做翻转，macOS 上 ImageIO 自带变换。
-- **大图观片**：双击打开。滚轮以鼠标为锚缩放（右下角显示比例），放大后可拖拽平移，双击在“适合窗口”和 1:1 之间切换；`←` `→` 走上一张/下一张。
+- **大图观片**：双击打开。滚轮以鼠标为锚缓动缩放（右下角常驻显示比例，适应窗口时明说），放大后可拖拽平移，双击在“适合窗口”和 1:1 之间切换；`←` `→` 走上一张/下一张。
 - **信息面板**：大图左上角显示相机、拍摄时间、光圈快门 ISO 焦距，压在深色纱上，盖不住照片。
 - **星级与标签写进文件**：大图里按 1–5 打星、按 `t` 加标签，以 XMP 写回照片文件本身——文件挪到哪儿，评分跟到哪儿，Lightroom 也认。
 - **文件操作**：复制、粘贴、重命名、移到回收站（走系统回收站，可还原）；在资源管理器中显示。
@@ -81,6 +81,7 @@ zig-out/bin/nanoflowvision.exe D:\Photos --nanoui-dark --nanoui-snapshot=shot-da
 | `src/gallery.zig` | 画廊：工具栏、照片网格、每张照片的 ⋯ 角标 |
 | `src/large.zig` | 大图：缩放、平移、信息面板 |
 | `src/app.zig` | 状态与视图：树、浮层、设置 |
+| `src/win.zig` | Windows 侧的小胶水：窗口图标、最大化状态 |
 
 三个关键决定：
 
@@ -96,7 +97,8 @@ zig-out/bin/nanoflowvision.exe D:\Photos --nanoui-dark --nanoui-snapshot=shot-da
 
 - [nanoui](https://github.com/justrach/nanoui) v0.6.4 —— UI 框架
 - [zigimg](https://github.com/zigimg/zigimg) —— 纯 Zig 的图片解码（JPEG / PNG / BMP / GIF / TIFF / …）
+- [nfd-zig](https://github.com/fabioarnold/nfd-zig) —— 系统原生文件/目录对话框
 
 ## 协议
 
-nanoui 与 zigimg 都是 MIT。本项目尚未选定协议。
+nanoui、zigimg 与 nfd-zig 都是 MIT。本项目尚未选定协议。
