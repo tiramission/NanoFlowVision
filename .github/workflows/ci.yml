@@ -27,12 +27,15 @@ jobs:
           curl -sSLo zig.zip "$ZIG_URL"
           echo "$ZIG_SHA256  zig.zip" | sha256sum -c -
           7z x zig.zip > /dev/null
-          echo "$PWD/zig-x86_64-windows-0.17.0" >> "$GITHUB_PATH"
+          # GITHUB_PATH wants a Windows path; bash's PWD is POSIX.
+          cygpath -w "$PWD/zig-x86_64-windows-0.17.0" >> "$GITHUB_PATH"
 
       - name: Test
+        shell: bash
         run: zig build test
 
       - name: Build (ReleaseFast)
+        shell: bash
         run: zig build -Doptimize=ReleaseFast
 
       # The build means nothing if its window comes up blank: render the
