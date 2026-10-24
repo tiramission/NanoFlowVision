@@ -25,6 +25,7 @@ fn runApp(nanoui_app: *nanoui.App, init: std.process.Init) !void {
     const gpa = init.gpa;
     const settings = loadSettings(gpa, init.io);
     defer if (settings.dir_path) |d| gpa.free(d);
+    defer if (settings.root.len > 0) gpa.free(settings.root);
 
     const root = try rootFolder(init, settings.root);
     defer init.gpa.free(root);

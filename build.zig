@@ -6,9 +6,12 @@ pub fn build(b: *std.Build) void {
     const nanoui = b.dependency("nanoui", .{ .target = target, .optimize = optimize }).module("nanoui");
     // The pictures: JPEG, PNG, BMP and the rest, in pure Zig.
     const zigimg = b.dependency("zigimg", .{ .target = target, .optimize = optimize }).module("zigimg");
+    // The folder dialog: the system's own, through nfd.
+    const nfd = b.dependency("nfd", .{ .target = target, .optimize = optimize }).module("nfd");
     const imports: []const std.Build.Module.Import = &.{
         .{ .name = "nanoui", .module = nanoui },
         .{ .name = "zigimg", .module = zigimg },
+        .{ .name = "nfd", .module = nfd },
     };
 
     const exe = b.addExecutable(.{ .name = "nanoflowvision", .root_module = b.createModule(.{

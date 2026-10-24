@@ -17,6 +17,7 @@ const config = @import("config.zig");
 const watch = @import("watch.zig");
 const i18n = @import("i18n.zig");
 const theme = @import("theme.zig");
+const nfd = @import("nfd");
 const win = @import("win.zig");
 
 /// How much room between and around the pictures.
@@ -89,6 +90,9 @@ pub const State = struct {
     watcher: watch.Watcher = undefined,
     /// The folder changed on disk: it is listed again before the frame.
     relist_pending: bool = false,
+    // A folder dialog was asked for, and the loop is to open it after
+    // the frame ends.
+    dialog_pending: bool = false,
     /// A folder the reader picked in the dialog, waiting for the frame to
     /// end before it becomes the root: the frame is still walking the old
     /// tree, and the old tree is not the time to free.
@@ -273,28 +277,31 @@ pub const State = struct {
     }
 
     /// Asks the reader for a folder, and queues it as the new root. The
-    /// dialog is modal here, in the middle of a frame: the tree it would
-    /// replace is the tree this frame is still walking, so the change
-    /// waits for the next one.
+    /// dialog itself must not open here: this is the middle of a frame's
+    /// build, and while a dialog runs its own message pump, the frame's
+    /// timers redraw the view inside it. The loop calls back after this
+    /// frame, from outside any build, and the dialog opens there.
     pub fn openFolderDialog(s: *State) void {
-        const ask = i18n.strings(s.lang).open_folder;
-        if (builtin.os.tag == .windows) {
-            const w = s.window orelse return;
-            const hwnd = w.hwnd orelse return;
-            const picked = win.pickFolder(s.gpa, @ptrCast(hwnd), s.tree.path, ask) orelse return;
-            defer s.gpa.free(picked);
-            s.queueReroot(picked);
-        } else {
-            const picked = nanoui.dialog.open(s.gpa, .{
-                .title = ask,
-                .directories = true,
-                .files = false,
-                .directory = s.tree.path,
-            }) catch return;
-            if (picked) |paths| {
-                defer nanoui.dialog.freePaths(s.gpa, paths);
-                if (paths.len > 0) s.queueReroot(paths[0]);
-            }
+        s.dialog_pending = true;
+        nanoui.App.after(0, s, folderDialogFromMain);
+    }
+
+    /// Runs the dialog, outside any frame. The folder goes to the queue
+    /// as before; the tree it replaces is not being walked here.
+    fn folderDialogFromMain(ctx: ?*anyopaque) callconv(.c) void {
+        const s: *State = @ptrCast(@alignCast(ctx.?));
+        if (!s.dialog_pending) return;
+        s.dialog_pending = false;
+        // The dialog reads a zero-ended path; the tree's own slice has no
+        // sentinel, so a copy gets one.
+        const start = s.gpa.alloc(u8, s.tree.path.len + 1) catch return;
+        defer s.gpa.free(start);
+        @memcpy(start[0..s.tree.path.len], s.tree.path);
+        start[s.tree.path.len] = 0;
+        const picked = nfd.openFolderDialog(start[0..s.tree.path.len :0]) catch return;
+        if (picked) |folder| {
+            defer nfd.freePath(folder);
+            s.queueReroot(folder);
         }
     }
 
