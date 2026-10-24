@@ -197,11 +197,15 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             }
         }
 
-        const panel = ui.div(c).absolute().offset(24, 24).gap(4);
+        // The panel rides on a scrim of its own, and its colours are its
+        // own: a photograph can be white, black, or anything between, and
+        // the words stay legible on all of them.
+        const panel = ui.div(c).absolute().offset(24, 24).p(12).gap(5).rounded(10)
+            .bg(ui.Color.black.alpha(0.45));
         defer panel.end();
-        if (n > 0) ui.text(c, c.print("{s}", .{line[0..n]}), .{ .size = 13, .weight = .semibold });
-        if (sn > 0) ui.text(c, c.print("{s}", .{stars[0..sn]}), .{ .size = 16 });
-        if (f > 0) ui.text(c, c.print("{s}", .{facts[0..f]}), .{ .size = 13, .color = th.muted });
+        if (n > 0) ui.text(c, c.print("{s}", .{line[0..n]}), .{ .size = 13, .weight = .semibold, .color = .white });
+        if (sn > 0) ui.text(c, c.print("{s}", .{stars[0..sn]}), .{ .size = 16, .color = .white });
+        if (f > 0) ui.text(c, c.print("{s}", .{facts[0..f]}), .{ .size = 13, .color = ui.Color.white.alpha(0.78) });
         if (m.tags_n > 0 and editable(pic.name)) {
             ui.row(c, .{ .gap = 6 });
             defer c.end();
@@ -213,10 +217,10 @@ pub fn view(s: *app.State, c: *ui.Context) void {
                         .radius = 5,
                         .align_items = .center,
                         .control = true,
-                        .background = th.track,
-                    }, null);
+                        .background = ui.Color.white.alpha(0.14),
+                    }, ui.Color.white.alpha(0.24));
                     defer c.end();
-                    ui.text(c, c.print("{s} ✕", .{m.tagOf(i)}), .{ .size = 12 });
+                    ui.text(c, c.print("{s} ✕", .{m.tagOf(i)}), .{ .size = 12, .color = .white });
                     if (it.clicked) {
                         removeTag(s, pic, &m, i);
                         continue;
@@ -238,7 +242,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
                 s.tag_editing = false;
             }
         } else if (editable(pic.name)) {
-            ui.text(c, "1-5 rate · t tag · 0 clear", .{ .size = 11, .color = th.muted });
+            ui.text(c, "1-5 rate · t tag · 0 clear", .{ .size = 11, .color = ui.Color.white.alpha(0.55) });
         }
     }
 

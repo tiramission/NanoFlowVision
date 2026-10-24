@@ -8,6 +8,7 @@ const ui = nanoui.ui;
 const app = @import("app.zig");
 const exif = @import("exif.zig");
 const xmp = @import("xmp.zig");
+const theme = @import("theme.zig");
 const tests_mod = @import("tests.zig");
 
 /// The bytes of a jpeg that carries the fixture's exif: enough of one for
@@ -160,7 +161,7 @@ test "snapshot: the exif panel with stars and tags" {
     const state = try app.State.create(gpa, std.testing.io, path);
     defer state.deinit();
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 1280, .height = 800 });
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 1280, .height = 800, .theme = theme.dark });
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
     t.frame();

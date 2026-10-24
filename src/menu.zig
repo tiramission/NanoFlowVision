@@ -50,10 +50,10 @@ pub fn view(s: *app.State, c: *ui.Context) void {
 
     const menu = ui.div(c).absolute()
         .offset(s.menu_at.x, s.menu_at.y)
-        .w(190)
+        .w(200)
         .p(4)
         .gap(2)
-        .rounded(8)
+        .rounded(10)
         .bg(th.surface)
         .shadowMd();
     defer menu.end();

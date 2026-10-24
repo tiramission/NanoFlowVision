@@ -13,10 +13,11 @@ const menu = @import("menu.zig");
 const ops = @import("ops.zig");
 const config = @import("config.zig");
 const watch = @import("watch.zig");
+const theme = @import("theme.zig");
 
 /// How much room between and around the pictures.
 const gap: f32 = 8;
-const padding: f32 = 12;
+const padding: f32 = 16;
 /// How many columns the gallery has at most.
 const max_columns: usize = 6;
 /// How far above and below the window pictures are built, in windows.
@@ -238,7 +239,7 @@ pub const State = struct {
     pub fn toggleDark(s: *State) void {
         s.dark = !s.dark;
         if (s.window) |w| {
-            if (w.surface) |surface| surface.theme_override = if (s.dark) ui.Theme.dark_theme else null;
+            if (w.surface) |surface| surface.theme_override = theme.forDark(s.dark);
             w.redraw();
         }
     }
@@ -354,7 +355,7 @@ pub const State = struct {
         ui.column(c, .{
             .width = .{ .px = 220 },
             .height = .fill,
-            .padding = .{ .top = 14, .left = 10, .right = 10, .bottom = 14 },
+            .padding = .{ .top = 16, .left = 12, .right = 12, .bottom = 16 },
             .gap = 4,
             .background = th.surface,
         });
@@ -375,7 +376,7 @@ pub const State = struct {
         for (folder.children) |*child| {
             const selected = s.current == child;
             const fg = if (selected) th.accent_text else th.text;
-            var row = ui.div(c).row().wFull().h(26).gap(6).itemsCenter().rounded(6);
+            var row = ui.div(c).row().wFull().h(28).gap(6).itemsCenter().rounded(7);
             row = if (selected) row.bg(th.accent) else row.hover(th.surface_hover);
             row = row.pl(6 + @as(f32, @floatFromInt(child.depth)) * 12);
             if (row.clicked()) {
@@ -408,7 +409,7 @@ pub const State = struct {
         const current = s.current;
         ui.row(c, .{
             .width = .fill,
-            .height = .{ .px = 46 },
+            .height = .{ .px = 48 },
             .padding = .{ .left = 12, .right = 14 },
             .gap = 10,
             .align_items = .center,
@@ -503,6 +504,21 @@ pub const State = struct {
 
         s.updateLayout(view_w);
 
+        // Nothing to show, and the words to say so: an empty folder, or a
+        // search that matched nothing.
+        if (s.shown.len == 0) {
+            s.first_picture = null;
+            s.built = 0;
+            ui.row(c, .{ .width = .fill, .height = .{ .px = view_h }, .align_items = .center, .justify = .center });
+            defer c.end();
+            if (pictures.len == 0) {
+                ui.label(c, "No pictures here");
+            } else {
+                ui.label(c, c.print("No matches for \"{s}\"", .{s.search.text()}));
+            }
+            return;
+        }
+
         // The room the pictures take, so the grid scrolls.
         _ = c.leaf(.{ .width = .fill, .height = .{ .px = s.layout.height } }, .none, null);
 
@@ -551,13 +567,19 @@ pub const State = struct {
 
     fn viewPicture(s: *State, c: *ui.Context, pic: *model.Picture, place: masonry.Placement) void {
         const th = c.theme;
-        const box = ui.div(c).absolute().offset(place.x, place.y).w(place.w).h(place.h).rounded(6);
+        const box = ui.div(c).absolute().offset(place.x, place.y).w(place.w).h(place.h).rounded(8);
         defer box.end();
         const inter = box.interaction();
         if (inter.double_clicked) {
             large.show(s, pic);
             c.changed = true;
             return;
+        }
+        // The pointer is on it: a hairline says this is the one the menu
+        // and the clicks mean.
+        if (inter.hovered) {
+            const n = c.node(c.stack.items[c.stack.items.len - 1]);
+            n.style.border = th.border;
         }
         // The menu's corner, on hover.
         if (inter.hovered and s.menu_for == null and s.renaming == null) {
@@ -584,6 +606,6 @@ pub const State = struct {
             }
         }
         // Not ready yet: its place is shown.
-        _ = c.leaf(.{ .width = .fill, .height = .fill, .radius = 6, .background = th.surface }, .none, null);
+        _ = c.leaf(.{ .width = .fill, .height = .fill, .radius = 8, .background = th.surface }, .none, null);
     }
 };

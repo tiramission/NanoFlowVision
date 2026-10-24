@@ -9,6 +9,7 @@ const builtin = @import("builtin");
 const nanoui = @import("nanoui");
 const app = @import("app.zig");
 const config = @import("config.zig");
+const theme = @import("theme.zig");
 
 const app_name = "NanoFlowVision";
 
@@ -35,7 +36,7 @@ pub fn main(init: std.process.Init) !void {
         .height = settings.height,
         .x = settings.x,
         .y = settings.y,
-        .theme = if (settings.dark) nanoui.ui.Theme.dark_theme else null,
+        .theme = theme.forDark(settings.dark),
         .content = .{ .view = .init(state, app.State.view) },
         .on_close = .{ .ctx = state, .func = saveFromWindow },
     });
