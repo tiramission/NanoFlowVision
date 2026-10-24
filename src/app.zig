@@ -470,14 +470,16 @@ pub const State = struct {
             s.toggleDark();
             s.saveSettings();
         }
-        if (s.relist_pending) {
-            s.relist_pending = false;
-            s.relist();
-        }
+        // A new root first, if one was picked: the folder it replaced
+        // has no business being listed again.
         if (s.reroot_pending) |path| {
             s.reroot_pending = null;
             s.reroot(path);
             s.gpa.free(path);
+        }
+        if (s.relist_pending) {
+            s.relist_pending = false;
+            s.relist();
         }
         if (s.large != null) {
             large.view(s, c);

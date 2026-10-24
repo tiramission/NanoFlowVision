@@ -79,14 +79,18 @@ pub const Watcher = struct {
         }
     }
 
-    /// The callback that runs on the main thread: the folder is listed
-    /// again if it is still the watched one.
+    /// The callback that runs on the main thread: the folder is to be
+    /// listed again if it is still the watched one. Only the wish is
+    /// recorded here -- the callback can fire from inside a modal
+    /// dialog's message pump, in the middle of a frame that is walking
+    /// the very tree a listing would rebuild, so the listing itself
+    /// waits for the top of the next frame.
     fn changed(ctx: ?*anyopaque) callconv(.c) void {
         const self: *Watcher = @ptrCast(@alignCast(ctx.?));
         const watched = self.dir_path orelse return;
         const folder = self.app.current orelse return;
         if (!std.mem.eql(u8, folder.path, watched)) return;
-        self.app.relist();
+        self.app.relist_pending = true;
     }
 
     fn loop(self: *Watcher) void {
