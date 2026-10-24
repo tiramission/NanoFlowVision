@@ -7,6 +7,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const zigimg = @import("zigimg");
+const exif = @import("exif.zig");
 
 pub const Size = struct {
     w: u32,
@@ -145,15 +146,65 @@ pub fn decode(gpa: std.mem.Allocator, bytes: []const u8, max_side: u32) !Pixels 
 /// The most bytes of a file the pure-Zig way will read to decode it.
 pub const max_file: usize = 256 * 1024 * 1024;
 
+/// The dimensions a picture shows at, once its exif orientation is
+/// applied: orientations 5 to 8 stand on their side.
+pub fn displayedSize(w: u32, h: u32, orientation: u16) Size {
+    if (orientation >= 5 and orientation <= 8) return .{ .w = h, .h = w };
+    return .{ .w = w, .h = h };
+}
+
+/// The exif orientation of the file at `path`, from its first bytes: 1
+/// when it says nothing (or something outside 1 to 8).
+pub fn readOrientation(io: std.Io, path: []const u8) u16 {
+    var buf: [64 * 1024]u8 = undefined;
+    const bytes = @import("scan.zig").readHeader(io, path, &buf) catch return 1;
+    const meta = exif.parse(bytes) orelse return 1;
+    if (meta.orientation < 1 or meta.orientation > 8) return 1;
+    return meta.orientation;
+}
+
+/// Turns the pixels the pure-Zig way decoded, so a sideways picture
+/// stands: the shown pixel at x, y reads the stored one the orientation
+/// puts there. Orientation 1 comes back as it was.
+pub fn rotatePixels(gpa: std.mem.Allocator, pixels: Pixels, orientation: u16) !Pixels {
+    const w = pixels.w;
+    const h = pixels.h;
+    const shown = displayedSize(w, h, orientation);
+    if (orientation < 2 or orientation > 8) return pixels;
+    const out = try gpa.alloc(u8, @as(usize, shown.w) * shown.h * 4);
+    errdefer gpa.free(out);
+    var y: u32 = 0;
+    while (y < shown.h) : (y += 1) {
+        var x: u32 = 0;
+        while (x < shown.w) : (x += 1) {
+            const at = switch (orientation) {
+                2 => (y * w + (w - 1 - x)) * 4,
+                3 => ((h - 1 - y) * w + (w - 1 - x)) * 4,
+                4 => ((h - 1 - y) * w + x) * 4,
+                5 => (x * w + y) * 4,
+                6 => (x * w + (h - 1 - y)) * 4,
+                7 => ((w - 1 - x) * w + (h - 1 - y)) * 4,
+                8 => ((w - 1 - x) * w + y) * 4,
+                else => (y * w + x) * 4,
+            };
+            const to = (@as(usize, y) * shown.w + x) * 4;
+            @memcpy(out[to..][0..4], pixels.bgra[at..][0..4]);
+        }
+    }
+    return .{ .w = shown.w, .h = shown.h, .bgra = out };
+}
+
 /// The picture at `path` as pixels, no longer than `max_side` on its longest
 /// side. Where the platform has a system decoder -- Windows' WIC, macOS'
 /// ImageIO -- the picture is scaled while it is decoded, and the file is
 /// never whole in memory; elsewhere, and wherever the system decoder cannot
 /// read a picture, the whole file is read and zigimg makes the thumbnail.
+/// Either way the picture stands as its exif orientation says.
 pub fn decodeFile(gpa: std.mem.Allocator, io: std.Io, path: []const u8, max_side: u32) !Pixels {
+    const orientation = readOrientation(io, path);
     if (builtin.os.tag == .windows) {
         const wic = @import("wic.zig");
-        if (wic.decodeFile(gpa, path, max_side)) |pixels| return pixels else |err| switch (err) {
+        if (wic.decodeFile(gpa, path, max_side, orientation)) |pixels| return pixels else |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => {}, // the system decoder does not know this picture
         }
@@ -162,12 +213,14 @@ pub fn decodeFile(gpa: std.mem.Allocator, io: std.Io, path: []const u8, max_side
         const imageio = @import("imageio.zig");
         if (imageio.decodeFile(gpa, path, max_side)) |pixels| return pixels else |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
-            else => {},
+            else => {}, // the system decoder does not know this picture
         }
     }
     const bytes = try @import("scan.zig").readAll(gpa, io, path, .limited(max_file));
     defer gpa.free(bytes);
-    return decode(gpa, bytes, max_side);
+    const pixels = try decode(gpa, bytes, max_side);
+    defer pixels.deinit(gpa);
+    return rotatePixels(gpa, pixels, orientation);
 }
 
 test "a JPEG's size comes from its header" {

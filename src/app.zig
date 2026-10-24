@@ -96,6 +96,14 @@ pub const State = struct {
     relist_pending: bool = false,
     /// The folder the settings are kept in, owned.
     settings_dir: ?[]u8 = null,
+    /// The large view's zoom (points per picture pixel; null fits) and
+    /// how far the picture has been dragged from the middle.
+    zoom: ?f32 = null,
+    pan_x: f32 = 0,
+    pan_y: f32 = 0,
+    panning: bool = false,
+    last_mouse_x: f32 = 0,
+    last_mouse_y: f32 = 0,
     /// Where the grid sits in the window, and how far it is scrolled:
     /// the menu opens at a picture's corner.
     grid_x: f32 = 0,

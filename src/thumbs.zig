@@ -448,16 +448,20 @@ fn run(pool: *Pool, job: Job, header: []u8) void {
                 shared.setFailed(job.generation, job.key);
                 return;
             };
+            // The first kilobytes carry what the picture says about itself:
+            // the header bytes are already here, so this reads nothing.
+            const meta = exif.parse(bytes);
+            // A sideways picture shows at its turned shape: orientations
+            // 5 to 8 swap the width and the height.
+            const shown = decode.displayedSize(size.w, size.h, if (meta) |m| m.orientation else 1);
             // The file's size and date come along, for the sort: one stat
             // now saves reading the file again for them later.
-            var st: Measured = .{ .aspect = size.aspect(), .pixels = @as(u64, size.w) * size.h };
+            var st: Measured = .{ .aspect = shown.aspect(), .pixels = @as(u64, shown.w) * shown.h };
             if (scan.statFile(shared.io, job.path)) |file| {
                 st.bytes = file.size;
                 st.mtime = file.mtime.nanoseconds;
             } else |_| {}
-            // The first kilobytes carry what the picture says about itself:
-            // the header bytes are already here, so this reads nothing.
-            st.meta = exif.parse(bytes);
+            st.meta = meta;
             shared.setMeasured(job.generation, job.key, st);
         },
         .picture, .large => {

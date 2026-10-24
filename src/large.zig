@@ -19,6 +19,9 @@ const xmp = @import("xmp.zig");
 /// pushing the thumbnails out.
 pub fn show(s: *app.State, pic: *model.Picture) void {
     close(s);
+    s.zoom = null;
+    s.pan_x = 0;
+    s.pan_y = 0;
     const key = thumbs.largeKey(s.gpa, pic.path) catch return;
     s.large_key = key;
     s.large = pic;
@@ -29,6 +32,10 @@ pub fn show(s: *app.State, pic: *model.Picture) void {
 pub fn close(s: *app.State) void {
     s.large = null;
     s.tag_editing = false;
+    s.zoom = null;
+    s.pan_x = 0;
+    s.pan_y = 0;
+    s.panning = false;
     s.tag_field.clear();
     if (s.large_key) |key| {
         s.gpa.free(key);
@@ -89,6 +96,8 @@ fn save(s: *app.State, pic: *model.Picture, m: *const exif.Meta) void {
 pub fn view(s: *app.State, c: *ui.Context) void {
     const th = c.theme;
     const pic = s.large orelse return;
+    // The wheel zooms here: nothing in this view scrolls.
+    c.wants_wheel = true;
     if (c.shortcut(.{ .key = ui.Shortcut.escape })) {
         // While a tag is being typed, Esc ends the typing first.
         if (s.tag_editing) {
@@ -246,7 +255,9 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         }
     }
 
-    const known = s.shared.get(key) orelse return;
+    const known = s.shared.get(key) orelse {
+        return;
+    };
     const pixels = known.thumb orelse {
         // The worker is still on it: another frame as soon as it lands.
         c.animationFrame();
@@ -254,23 +265,59 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         return;
     };
 
-    // The picture, as large as the window allows.
+    // The picture at its fit size, and the wheel that zooms it: the view
+    // takes the wheel where nothing scrolls. Zooming keeps to the fit at
+    // the small end and stops at eight times.
     const room_w = c.size.w - 48;
     const room_h = c.size.h - 48;
-    const scale = @min(
-        room_w / @as(f32, @floatFromInt(pixels.w)),
-        room_h / @as(f32, @floatFromInt(pixels.h)),
-    );
-    const w = @as(f32, @floatFromInt(pixels.w)) * scale;
-    const h = @as(f32, @floatFromInt(pixels.h)) * scale;
+    const img_w: f32 = @floatFromInt(pixels.w);
+    const img_h: f32 = @floatFromInt(pixels.h);
+    const fit = @min(room_w / img_w, room_h / img_h);
+    const wheel = c.input.scroll.y;
+    if (wheel != 0) {
+        const base = s.zoom orelse fit;
+        const lo = @min(fit, 1.0);
+        const hi = @max(fit, 1.0) * 8.0;
+        s.zoom = std.math.clamp(base * std.math.pow(f32, 1.15, wheel), lo, hi);
+        c.changed = true;
+    }
+    const zoom = s.zoom orelse fit;
+    const w = img_w * zoom;
+    const h = img_h * zoom;
+    // The picture dragged from the middle, held inside the overflow.
+    const overflow_x = @max(0, (w - room_w) / 2);
+    const overflow_y = @max(0, (h - room_h) / 2);
+    s.pan_x = std.math.clamp(s.pan_x, -overflow_x, overflow_x);
+    s.pan_y = std.math.clamp(s.pan_y, -overflow_y, overflow_y);
+
     const texture = ui.Texture{ .width = pixels.w, .height = pixels.h, .bgra = pixels.bgra };
     const frame = ui.div(c)
         .absolute()
-        .offset(@max(0, (c.size.w - w) / 2), @max(0, (c.size.h - h) / 2))
+        .offset((c.size.w - w) / 2 + s.pan_x, (c.size.h - h) / 2 + s.pan_y)
         .w(w)
         .h(h)
         .shadowMd();
     defer frame.end();
+    const inter = frame.interaction();
+    // Two clicks: fit and 1:1 change places.
+    if (inter.double_clicked) {
+        s.zoom = if ((s.zoom orelse fit) > fit + 0.01) null else 1.0;
+        s.pan_x = 0;
+        s.pan_y = 0;
+        c.changed = true;
+    } else if (inter.pressed and zoom > fit + 0.01) {
+        // Dragging the picture when it is bigger than the room.
+        if (s.panning) {
+            s.pan_x += c.input.mouse.x - s.last_mouse_x;
+            s.pan_y += c.input.mouse.y - s.last_mouse_y;
+            c.changed = true;
+        }
+        s.panning = true;
+        s.last_mouse_x = c.input.mouse.x;
+        s.last_mouse_y = c.input.mouse.y;
+    } else {
+        s.panning = false;
+    }
     _ = ui.texture(c, .{ .width = .fill, .height = .fill }, texture, .{ 0, 0, 1, 1 }, 1);
 }
 

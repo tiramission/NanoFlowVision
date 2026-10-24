@@ -61,6 +61,10 @@ const Factory = struct {
     createPalette: *const fn (*anyopaque, *const GUID, *?*anyopaque) callconv(.winapi) i32,
     createFormatConverter: *const fn (*anyopaque, *?*anyopaque) callconv(.winapi) i32,
     createBitmapScaler: *const fn (*anyopaque, *?*anyopaque) callconv(.winapi) i32,
+    /// Slot 12 in the DLL; the mingw header's C++ order swaps it with the
+    /// flip rotator, and calling the clipper as a rotator segfaults.
+    createBitmapClipper: *const fn (*anyopaque, *?*anyopaque) callconv(.winapi) i32,
+    createBitmapFlipRotator: *const fn (*anyopaque, *?*anyopaque) callconv(.winapi) i32,
 };
 
 /// IWICBitmapDecoder, up to GetFrame, where it is called.
@@ -121,6 +125,42 @@ const Converter = struct {
     canConvert: *const fn (*anyopaque, *const GUID, *i32) callconv(.winapi) i32,
 };
 
+/// IWICBitmapFlipRotator: the source's seven methods, then Initialize
+/// (slot 8), which takes the source and one WICBitmapTransformOptions.
+const FlipRotator = struct {
+    queryInterface: *const fn (*anyopaque, *const GUID, *?*anyopaque) callconv(.winapi) i32,
+    addRef: *const fn (*anyopaque) callconv(.winapi) u32,
+    release: *const fn (*anyopaque) callconv(.winapi) u32,
+    getSize: *const fn (*anyopaque, *u32, *u32) callconv(.winapi) i32,
+    getPixelFormat: *const fn (*anyopaque, *const GUID) callconv(.winapi) i32,
+    getResolution: *const fn (*anyopaque, *f64, *f64) callconv(.winapi) i32,
+    copyPalette: *const fn (*anyopaque, *anyopaque) callconv(.winapi) i32,
+    copyPixels: *const fn (*anyopaque, ?*const Rect, u32, u32, [*]u8) callconv(.winapi) i32,
+    initialize: *const fn (*anyopaque, *anyopaque, i32) callconv(.winapi) i32,
+};
+
+const WICBitmapTransformRotate90: i32 = 1;
+const WICBitmapTransformRotate180: i32 = 2;
+const WICBitmapTransformRotate270: i32 = 3;
+const WICBitmapTransformFlipHorizontal: i32 = 0x8;
+const WICBitmapTransformFlipVertical: i32 = 0x10;
+
+/// The transforms that stand a stored picture up, for an exif orientation:
+/// the first is applied to the decoded picture first. Orientations 5 and 7
+/// need a rotation and a flip, which is two rotators in a chain.
+pub fn transformsFor(orientation: u16) [2]?i32 {
+    return switch (orientation) {
+        2 => .{ WICBitmapTransformFlipHorizontal, null },
+        3 => .{ WICBitmapTransformRotate180, null },
+        4 => .{ WICBitmapTransformFlipVertical, null },
+        5 => .{ WICBitmapTransformRotate90, WICBitmapTransformFlipHorizontal },
+        6 => .{ WICBitmapTransformRotate90, null },
+        7 => .{ WICBitmapTransformRotate270, WICBitmapTransformFlipHorizontal },
+        8 => .{ WICBitmapTransformRotate270, null },
+        else => .{ null, null },
+    };
+}
+
 /// The vtable sits at the object's first member, as a pointer to the
 /// pointers of its methods.
 fn vtable(com: *anyopaque, comptime T: type) *const T {
@@ -143,7 +183,7 @@ fn ensureCom() bool {
 /// The picture at `path` as pixels, its longest side no longer than
 /// `max_side`. The file stays on disk: WIC reads it itself, and the scaler
 /// is asked for the thumbnail's size before any pixel is copied.
-pub fn decodeFile(gpa: std.mem.Allocator, path: []const u8, max_side: u32) !decode.Pixels {
+pub fn decodeFile(gpa: std.mem.Allocator, path: []const u8, max_side: u32, orientation: u16) !decode.Pixels {
     if (!ensureCom()) return error.NoDecoder;
 
     var factory: ?*anyopaque = null;
@@ -189,18 +229,44 @@ pub fn decodeFile(gpa: std.mem.Allocator, path: []const u8, max_side: u32) !deco
     if (sv.initialize(scaler.?, frame.?, tw, th, WICBitmapInterpolationModeFant) < 0)
         return error.NotPicture;
 
+    // The exif orientation stands the picture up: one or two flip
+    // rotators between the scaler and the converter, still inside the
+    // decode. The shown size is the turned one.
+    const ts = transformsFor(orientation);
+    var top: *anyopaque = scaler.?;
+    var flips: [2]?*anyopaque = .{ null, null };
+    var n: usize = 0;
+    for (ts) |t| {
+        const transform = t orelse continue;
+        var flip: ?*anyopaque = null;
+        if (fv.createBitmapFlipRotator(f, &flip) < 0) return error.NotPicture;
+        errdefer _ = vtable(flip.?, Source).release(flip.?);
+        const flv = vtable(flip.?, FlipRotator);
+        if (flv.initialize(flip.?, top, transform) < 0) return error.NotPicture;
+        flips[n] = flip;
+        n += 1;
+        top = flip.?;
+    }
+    defer for (flips[0..n]) |fp| {
+        if (fp) |p| _ = vtable(p, Source).release(p);
+    };
+
+    const shown = decode.displayedSize(tw, th, orientation);
+    const shown_w = shown.w;
+    const shown_h = shown.h;
+
     var converter: ?*anyopaque = null;
     if (fv.createFormatConverter(f, &converter) < 0) return error.NotPicture;
     const converter_source = vtable(converter.?, Source);
     defer _ = converter_source.release(converter.?);
     const cv = vtable(converter.?, Converter);
-    if (cv.initialize(converter.?, scaler.?, &fmt_bgra_premultiplied, 0, null, 0.0, 0) < 0)
+    if (cv.initialize(converter.?, top, &fmt_bgra_premultiplied, 0, null, 0.0, 0) < 0)
         return error.NotPicture;
 
-    const out = try gpa.alloc(u8, @as(usize, tw) * th * 4);
+    const out = try gpa.alloc(u8, @as(usize, shown_w) * shown_h * 4);
     errdefer gpa.free(out);
-    if (cv.copyPixels(converter.?, null, tw * 4, @intCast(out.len), out.ptr) < 0)
+    if (cv.copyPixels(converter.?, null, shown_w * 4, @intCast(out.len), out.ptr) < 0)
         return error.NotPicture;
 
-    return .{ .w = tw, .h = th, .bgra = out };
+    return .{ .w = shown_w, .h = shown_h, .bgra = out };
 }

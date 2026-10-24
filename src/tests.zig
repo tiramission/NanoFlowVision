@@ -16,13 +16,13 @@ const Sample = struct {
     tmp: std.testing.TmpDir,
     path: []u8,
 
-    fn deinit(s: *Sample, gpa: std.mem.Allocator) void {
+    pub fn deinit(s: *Sample, gpa: std.mem.Allocator) void {
         gpa.free(s.path);
         s.tmp.cleanup();
     }
 };
 
-fn makeSample(gpa: std.mem.Allocator) !Sample {
+pub fn makeSample(gpa: std.mem.Allocator) !Sample {
     return makeSampleWith(gpa, 1);
 }
 

@@ -118,7 +118,7 @@ pub const Watcher = struct {
                 handle,
                 &buffer,
                 buffer.len,
-                0, // this folder only
+                1, // the subfolders too: a recursive gallery follows them
                 FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE,
                 null,
                 &overlapped,
