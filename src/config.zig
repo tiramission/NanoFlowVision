@@ -9,8 +9,8 @@ pub const Settings = struct {
     /// Where the window sat. Null when it was centred by the system.
     x: ?f64 = null,
     y: ?f64 = null,
-    width: f64 = 1280,
-    height: f64 = 800,
+    width: f64 = 1100,
+    height: f64 = 720,
     /// Whether the gallery is drawn dark.
     dark: bool = false,
     /// Whether the gallery takes the subfolders' pictures in.
@@ -48,8 +48,10 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, dir_path: []const u8) Settings {
             out.lang = if (std.mem.eql(u8, value, "zh")) .zh else .en;
         }
     }
-    if (out.width < 200) out.width = 200;
-    if (out.height < 150) out.height = 150;
+    // A window too small to see or too large for any screen is a saved
+    // accident, not a wish: hold both ends.
+    out.width = std.math.clamp(out.width, 480, 1920);
+    out.height = std.math.clamp(out.height, 320, 1200);
     return out;
 }
 
@@ -108,4 +110,15 @@ test "settings round-trip" {
     // Nothing to read: the defaults.
     const fresh = load(gpa, std.testing.io, "C:/definitely/not/here");
     try std.testing.expect(!fresh.dark and fresh.x == null);
+    try std.testing.expectEqual(@as(f64, 1100), fresh.width);
+    try std.testing.expectEqual(@as(f64, 720), fresh.height);
+
+    // A size no one meant: held to what a window can be.
+    var odd: Settings = .{};
+    odd.width = 5000;
+    odd.height = 100;
+    save(std.testing.io, dir_path, odd);
+    const held = load(gpa, std.testing.io, dir_path);
+    try std.testing.expectEqual(@as(f64, 1920), held.width);
+    try std.testing.expectEqual(@as(f64, 320), held.height);
 }

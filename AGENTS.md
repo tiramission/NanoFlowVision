@@ -48,7 +48,8 @@ or the folder it was started in.
 build.zig       the app, `run` and `test` steps
 build.zig.zon   nanoui and zigimg, pinned
 src/main.zig    the window, and the folder to show
-src/app.zig     the state and its view: tree, gallery, the large picture
+src/app.zig     the state and its view: tree, the overlays, the settings
+src/gallery.zig the gallery: toolbar, the grid of pictures, their menu corner
 src/model.zig   what a folder holds: folders, pictures
 src/scan.zig    reading folders and files
 src/decode.zig   pictures as pixels: BGRA, premultiplied; the per-platform dispatch

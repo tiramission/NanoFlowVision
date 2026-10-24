@@ -16,8 +16,10 @@ const app_name = "NanoFlowVision";
 
 pub fn main(init: std.process.Init) !void {
     const nanoui_app = try nanoui.App.create(init, .{ .name = app_name });
-    defer nanoui_app.destroy();
+    return runApp(nanoui_app, init);
+}
 
+fn runApp(nanoui_app: *nanoui.App, init: std.process.Init) !void {
     const gpa = init.gpa;
     const settings = loadSettings(gpa, init.io);
     defer if (settings.dir_path) |d| gpa.free(d);
@@ -26,11 +28,18 @@ pub fn main(init: std.process.Init) !void {
     defer init.gpa.free(root);
 
     const state = try app.State.create(gpa, init.io, root);
+    // The state is torn down after the app: the app's own destroy closes
+    // the window, and the window's on_close still reads the state. Defers
+    // run backwards, so the state's comes first.
     defer state.deinit();
-    state.dark = settings.dark;
+    defer nanoui_app.destroy();
+    state.dark = settings.dark or nanoui_app.flags.dark;
     state.recursive = settings.recursive;
     state.lang = settings.lang;
     state.settings_dir = settings.dir_path;
+    // A snapshot or a script run opens a figment of a window: the way it
+    // sat is not how the app sits, and is not worth remembering.
+    state.snapshot_run = nanoui_app.flags.snapshot != null;
 
     const window = try nanoui_app.newWindow(.{
         .title = app_name,
@@ -38,7 +47,7 @@ pub fn main(init: std.process.Init) !void {
         .height = settings.height,
         .x = settings.x,
         .y = settings.y,
-        .theme = theme.forDark(settings.dark),
+        .theme = theme.forDark(state.dark),
         .content = .{ .view = .init(state, app.State.view) },
         .on_close = .{ .ctx = state, .func = saveFromWindow },
     });
@@ -55,13 +64,16 @@ fn loadSettings(gpa: std.mem.Allocator, io: std.Io) struct { dir_path: ?[]u8, da
         const s = config.load(gpa, io, d);
         return .{ .dir_path = d, .dark = s.dark, .recursive = s.recursive, .lang = s.lang, .x = s.x, .y = s.y, .width = s.width, .height = s.height };
     }
-    return .{ .dir_path = null, .dark = false, .recursive = false, .lang = .en, .x = null, .y = null, .width = 1280, .height = 800 };
+    return .{ .dir_path = null, .dark = false, .recursive = false, .lang = .en, .x = null, .y = null, .width = 1100, .height = 720 };
 }
 
-/// The window is closing: the way it sat is remembered.
+/// The window is closing: the way it sat is remembered, unless the window
+/// was a figment -- a snapshot or a script run -- whose size and place
+/// would only be remembered wrongly.
 fn saveFromWindow(ctx: *anyopaque, window: *nanoui.Window) void {
     _ = window;
     const state: *app.State = @ptrCast(@alignCast(ctx));
+    if (state.snapshot_run) return;
     state.saveSettings();
 }
 

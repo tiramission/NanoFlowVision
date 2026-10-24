@@ -44,8 +44,12 @@ pub fn build(b: *std.Build) void {
         tests.root_module.linkFramework("ImageIO", .{});
     }
 
-    // A window of its own on Windows, without a console window beside it.
-    if (os_tag == .windows) exe.subsystem = .windows;
+    // A window of its own on Windows, without a console window beside it,
+    // and the icon Explorer and the taskbar show.
+    if (os_tag == .windows) {
+        exe.subsystem = .windows;
+        exe.root_module.addWin32ResourceFile(.{ .file = b.path("res/app.rc") });
+    }
     b.installArtifact(exe);
     const run = b.addRunArtifact(exe);
     run.addPassthruArgs();

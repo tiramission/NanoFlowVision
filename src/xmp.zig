@@ -97,21 +97,40 @@ pub fn rewriteFile(gpa: std.mem.Allocator, io: std.Io, path: []const u8, m: *con
 
     var dir = try std.Io.Dir.openDirAbsolute(io, model.parentOf(path) orelse return error.NoParent, .{});
     defer dir.close(io);
-    {
-        var af = try dir.createFileAtomic(io, model.nameOf(path), .{ .replace = true });
-        errdefer af.deinit(io);
-        var buffer: [64 * 1024]u8 = undefined;
-        var writer = af.file.writer(io, &buffer);
-        try writer.interface.writeAll(rebuilt);
-        try writer.interface.flush();
-        try af.replace(io);
-        af.deinit(io);
-    }
 
-    // The picture keeps its own date.
-    var file = try std.Io.Dir.openFileAbsolute(io, path, .{ .mode = .read_write });
-    defer file.close(io);
-    try file.setTimestamps(io, .{ .modify_timestamp = .{ .new = was.mtime } });
+    // The readers hold photographs open while they are decoded -- the
+    // workers here, Explorer elsewhere -- and a photograph mid-decode
+    // cannot be swapped under its reader. A decode lasts moments, so a
+    // sharing violation is worth a short wait and another try. Windows
+    // reports the reader as an unexpected status it names a sharing
+    // violation; anything unexpected gets the same brief patience.
+    var attempt: usize = 0;
+    while (true) {
+        swapIn(io, dir, model.nameOf(path), rebuilt, was.mtime) catch |err| switch (err) {
+            error.Unexpected => {
+                attempt += 1;
+                if (attempt >= 50) return err;
+                std.Io.sleep(io, .fromMilliseconds(20), .awake) catch {};
+                continue;
+            },
+            else => return err,
+        };
+        break;
+    }
+}
+
+/// Writes `bytes` over `name` through a temporary file that already
+/// carries the date, and replaces the original only once whole.
+fn swapIn(io: std.Io, dir: std.Io.Dir, name: []const u8, bytes: []const u8, mtime: anytype) !void {
+    var af = try dir.createFileAtomic(io, name, .{ .replace = true });
+    errdefer af.deinit(io);
+    var buffer: [64 * 1024]u8 = undefined;
+    var writer = af.file.writer(io, &buffer);
+    try writer.interface.writeAll(bytes);
+    try writer.interface.flush();
+    try af.file.setTimestamps(io, .{ .modify_timestamp = .{ .new = mtime } });
+    try af.replace(io);
+    af.deinit(io);
 }
 
 fn put(buf: []u8, n: *usize, comptime fmt: []const u8, args: anytype) void {
