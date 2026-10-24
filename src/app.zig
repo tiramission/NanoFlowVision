@@ -11,6 +11,8 @@ const thumbs = @import("thumbs.zig");
 const large = @import("large.zig");
 const menu = @import("menu.zig");
 const ops = @import("ops.zig");
+const config = @import("config.zig");
+const watch = @import("watch.zig");
 
 /// How much room between and around the pictures.
 const gap: f32 = 8;
@@ -29,34 +31,6 @@ pub const SortKey = enum { name, time, size, pixels, stars };
 
 /// The words on the sort control, in the order of `SortKey`.
 const sort_labels = [_][]const u8{ "Name", "Date", "Size", "Pixels", "Stars" };
-
-/// Whether one name goes before another, ignoring the case of the letters.
-fn orderFold(a: []const u8, b: []const u8) std.math.Order {
-    const n = @min(a.len, b.len);
-    for (0..n) |i| {
-        const ca = std.ascii.toLower(a[i]);
-        const cb = std.ascii.toLower(b[i]);
-        if (ca != cb) return std.math.order(ca, cb);
-    }
-    return std.math.order(a.len, b.len);
-}
-
-/// Whether a name holds the words that were searched for.
-fn matchesFold(name: []const u8, query: []const u8) bool {
-    if (query.len == 0) return true;
-    if (query.len > name.len) return false;
-    for (0..name.len - query.len + 1) |i| {
-        var hit = true;
-        for (query, 0..) |qc, j| {
-            if (std.ascii.toLower(name[i + j]) != std.ascii.toLower(qc)) {
-                hit = false;
-                break;
-            }
-        }
-        if (hit) return true;
-    }
-    return false;
-}
 
 pub const State = struct {
     gpa: std.mem.Allocator,
@@ -113,8 +87,14 @@ pub const State = struct {
     rename_field: ui.TextBuffer = .{},
     /// Whether the gallery lists the folders inside as well.
     recursive: bool = false,
+    /// Whether the gallery is drawn dark.
+    dark: bool = false,
+    /// The folder being watched for changes.
+    watcher: watch.Watcher = undefined,
     /// The folder changed on disk: it is listed again before the frame.
     relist_pending: bool = false,
+    /// The folder the settings are kept in, owned.
+    settings_dir: ?[]u8 = null,
     /// Where the grid sits in the window, and how far it is scrolled:
     /// the menu opens at a picture's corner.
     grid_x: f32 = 0,
@@ -135,12 +115,14 @@ pub const State = struct {
             .pool = .{ .gpa = gpa, .io = io, .shared = &s.shared },
             .tree = .{ .path = root_path, .name = root_name },
         };
+        s.watcher = .{ .app = s, .gpa = gpa };
         try s.pool.start(gpa, io, &s.shared);
         s.open(&s.tree);
         return s;
     }
 
     pub fn deinit(s: *State) void {
+        s.watcher.stopCurrent();
         s.pool.stop();
         s.pool.window = null;
         s.shared.deinit();
@@ -211,7 +193,7 @@ pub const State = struct {
     /// landed): what it holds is read again. The cache keeps what is in
     /// it -- the pictures that remain are keyed by their paths, which
     /// did not change.
-    fn relist(s: *State) void {
+    pub fn relist(s: *State) void {
         const folder = s.current orelse return;
         folder.loaded = false;
         s.loadChildren(folder) catch {};
@@ -238,6 +220,9 @@ pub const State = struct {
         // Every picture's size is read first, so the layout is made once and
         // the gallery does not move under the eye as they are measured.
         for (folder.pictures) |*pic| s.pool.ask(pic.path, pic.path, .measure);
+        // The folder is watched from now on: what changes on the disk
+        // arrives by itself.
+        s.watcher.start(folder.path);
     }
 
     /// The sort or the search changed: the order follows, from the top,
@@ -246,6 +231,16 @@ pub const State = struct {
         s.order_version += 1;
         s.laid_out_for = 0;
         s.scroll_to_top = true;
+    }
+
+    /// Dark or light, as the eye prefers. The window's surface is told
+    /// directly; the setting rides along in the config file.
+    pub fn toggleDark(s: *State) void {
+        s.dark = !s.dark;
+        if (s.window) |w| {
+            if (w.surface) |surface| surface.theme_override = if (s.dark) ui.Theme.dark_theme else null;
+            w.redraw();
+        }
     }
 
     /// The folder above the one shown.
@@ -278,7 +273,7 @@ pub const State = struct {
         var list: std.ArrayList(*model.Picture) = .empty;
         defer list.deinit(s.gpa);
         for (folder.pictures) |*pic| {
-            if (matchesFold(pic.name, query)) {
+            if (model.matchesFold(pic.name, query)) {
                 list.append(s.gpa, pic) catch return;
             }
         }
@@ -291,14 +286,14 @@ pub const State = struct {
                 const sa = ctx.shared.measuredOf(a.path) orelse thumbs.Measured{ .aspect = 1 };
                 const sb = ctx.shared.measuredOf(b.path) orelse thumbs.Measured{ .aspect = 1 };
                 const order: std.math.Order = switch (ctx.key) {
-                    .name => orderFold(a.name, b.name),
+                    .name => model.orderFold(a.name, b.name),
                     .time => std.math.order(sa.mtime, sb.mtime),
                     .size => std.math.order(sa.bytes, sb.bytes),
                     .pixels => std.math.order(sa.pixels, sb.pixels),
                     .stars => std.math.order(sa.rating, sb.rating),
                 };
                 // Pictures that tie go by their name, whatever the direction.
-                if (order == .eq) return orderFold(a.name, b.name) == .lt;
+                if (order == .eq) return model.orderFold(a.name, b.name) == .lt;
                 return if (ctx.ascending) order == .lt else order == .gt;
             }
         };
@@ -337,6 +332,8 @@ pub const State = struct {
     }
 
     pub fn view(s: *State, c: *ui.Context) void {
+        // Dark or light, wherever the eye is.
+        if (c.shortcut(.{ .key = 'd', .ctrl = true })) s.toggleDark();
         if (s.relist_pending) {
             s.relist_pending = false;
             s.relist();

@@ -11,6 +11,7 @@ const ui = nanoui.ui;
 const app = @import("app.zig");
 const exif = @import("exif.zig");
 const model = @import("model.zig");
+const ops = @import("ops.zig");
 const thumbs = @import("thumbs.zig");
 const xmp = @import("xmp.zig");
 
@@ -33,6 +34,22 @@ pub fn close(s: *app.State) void {
         s.gpa.free(key);
         s.large_key = null;
     }
+}
+
+/// Opens the picture one over in the gallery: the one before with -1,
+/// the one after with 1. Nothing happens at the ends.
+fn neighbor(s: *app.State, step: i32) void {
+    const current = s.large orelse return;
+    var at: i64 = -1;
+    for (s.shown, 0..) |p, i| {
+        if (p == current) {
+            at = @intCast(i);
+            break;
+        }
+    }
+    const next = at + step;
+    if (next < 0 or next >= @as(i64, @intCast(s.shown.len))) return;
+    show(s, s.shown[@intCast(next)]);
 }
 
 /// Whether the picture's file is one we know how to write: a jpeg. The
@@ -79,6 +96,18 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             s.tag_field.clear();
         } else {
             close(s);
+            return;
+        }
+    }
+
+    // The arrows walk the gallery from here; delete takes the picture
+    // to the bin, and the large view follows to the next one.
+    if (c.input.key == .left or c.shortcut(.{ .key = ui.Shortcut.left, .ctrl = true })) neighbor(s, -1);
+    if (c.input.key == .right or c.shortcut(.{ .key = ui.Shortcut.right, .ctrl = true })) neighbor(s, 1);
+    if (c.input.key == .delete and editable(pic.name)) {
+        if (ops.trash(pic.path)) {
+            close(s);
+            s.relist_pending = true;
             return;
         }
     }

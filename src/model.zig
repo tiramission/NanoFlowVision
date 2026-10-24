@@ -115,3 +115,31 @@ test "a path splits into its folder and its name" {
     try std.testing.expectEqualStrings("c.jpg", nameOf("a/b/c.jpg"));
     try std.testing.expect(parentOf("c.jpg") == null);
 }
+
+/// Whether one name goes before another, ignoring the case of the letters.
+pub fn orderFold(a: []const u8, b: []const u8) std.math.Order {
+    const n = @min(a.len, b.len);
+    for (0..n) |i| {
+        const ca = std.ascii.toLower(a[i]);
+        const cb = std.ascii.toLower(b[i]);
+        if (ca != cb) return std.math.order(ca, cb);
+    }
+    return std.math.order(a.len, b.len);
+}
+
+/// Whether a name holds the words that were searched for.
+pub fn matchesFold(name: []const u8, query: []const u8) bool {
+    if (query.len == 0) return true;
+    if (query.len > name.len) return false;
+    for (0..name.len - query.len + 1) |i| {
+        var hit = true;
+        for (query, 0..) |qc, j| {
+            if (std.ascii.toLower(name[i + j]) != std.ascii.toLower(qc)) {
+                hit = false;
+                break;
+            }
+        }
+        if (hit) return true;
+    }
+    return false;
+}

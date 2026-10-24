@@ -57,9 +57,14 @@ src/imageio.zig  macOS' decoder: ImageIO, the same way
 src/exif.zig     what a picture says about itself: EXIF and XMP, from the bytes measurement holds
 src/xmp.zig      the stars and tags, written back into the picture file
 src/large.zig    the picture large, with its exif in the corner
+src/menu.zig     the picture's menu: open, reveal, copy, rename, the bin
+src/ops.zig      the file operations: the bin and the clipboard where nanoui is silent
+src/config.zig   the settings: how the window sat, dark, subfolders
+src/watch.zig    the folder watched, so the disk's changes arrive by themselves
 src/masonry.zig  where each picture sits: columns of pictures
 src/thumbs.zig   the cache and the workers that fill it
 src/tests.zig    the view, drawn offscreen, and the pictures it decodes
+src/tests_meta.zig  the tests for what goes into the picture files
 ```
 
 ## How the gallery works
