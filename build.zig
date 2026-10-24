@@ -32,8 +32,10 @@ pub fn build(b: *std.Build) void {
     if (os_tag == .windows) {
         exe.root_module.linkSystemLibrary("ole32", .{});
         exe.root_module.linkSystemLibrary("windowscodecs", .{});
+        exe.root_module.linkSystemLibrary("shell32", .{});
         tests.root_module.linkSystemLibrary("ole32", .{});
         tests.root_module.linkSystemLibrary("windowscodecs", .{});
+        tests.root_module.linkSystemLibrary("shell32", .{});
     }
     if (os_tag == .macos) {
         exe.root_module.linkFramework("CoreFoundation", .{});

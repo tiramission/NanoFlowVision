@@ -103,10 +103,16 @@ pub const State = struct {
     lang: i18n.Lang = .en,
     settings_open: bool = false,
     /// The large view's zoom (points per picture pixel; null fits) and
-    /// how far the picture has been dragged from the middle.
+    /// how far the picture has been dragged from the middle. The wheel
+    /// sets a target the zoom eases toward -- a jump a notch reads as a
+    /// stutter -- and the target carries the anchor the easing keeps.
     zoom: ?f32 = null,
+    zoom_target: ?f32 = null,
+    zoom_moving: bool = false,
     pan_x: f32 = 0,
     pan_y: f32 = 0,
+    pan_tx: f32 = 0,
+    pan_ty: f32 = 0,
     panning: bool = false,
     last_mouse_x: f32 = 0,
     last_mouse_y: f32 = 0,
@@ -275,19 +281,32 @@ pub const State = struct {
     /// replace is the tree this frame is still walking, so the change
     /// waits for the next one.
     pub fn openFolderDialog(s: *State) void {
-        const picked = nanoui.dialog.open(s.gpa, .{
-            .title = i18n.strings(s.lang).open_folder,
-            .directories = true,
-            .files = false,
-            .directory = s.tree.path,
-        }) catch return;
-        if (picked) |paths| {
-            defer nanoui.dialog.freePaths(s.gpa, paths);
-            if (paths.len > 0) {
-                if (s.reroot_pending) |old| s.gpa.free(old);
-                s.reroot_pending = s.gpa.dupe(u8, paths[0]) catch null;
+        const ask = i18n.strings(s.lang).open_folder;
+        if (builtin.os.tag == .windows) {
+            const w = s.window orelse return;
+            const hwnd = w.hwnd orelse return;
+            const picked = win.pickFolder(s.gpa, @ptrCast(hwnd), s.tree.path, ask) orelse return;
+            defer s.gpa.free(picked);
+            s.queueReroot(picked);
+        } else {
+            const picked = nanoui.dialog.open(s.gpa, .{
+                .title = ask,
+                .directories = true,
+                .files = false,
+                .directory = s.tree.path,
+            }) catch return;
+            if (picked) |paths| {
+                defer nanoui.dialog.freePaths(s.gpa, paths);
+                if (paths.len > 0) s.queueReroot(paths[0]);
             }
         }
+    }
+
+    /// Holds a chosen folder for the next frame, when no one is walking
+    /// the tree it replaces.
+    fn queueReroot(s: *State, path: []const u8) void {
+        if (s.reroot_pending) |old| s.gpa.free(old);
+        s.reroot_pending = s.gpa.dupe(u8, path) catch null;
     }
 
     /// Makes another folder the root: the tree is read from it anew, the

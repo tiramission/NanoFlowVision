@@ -34,8 +34,12 @@ pub fn close(s: *app.State) void {
     s.large = null;
     s.tag_editing = false;
     s.zoom = null;
+    s.zoom_target = null;
+    s.zoom_moving = false;
     s.pan_x = 0;
     s.pan_y = 0;
+    s.pan_tx = 0;
+    s.pan_ty = 0;
     s.panning = false;
     s.tag_field.clear();
     if (s.large_key) |key| {
@@ -160,29 +164,70 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         const img_h: f32 = @floatFromInt(pixels.h);
         const fit = @min(room_w / img_w, room_h / img_h);
         const wheel = c.input.scroll.y;
+
+        // Where the wheel wants the zoom to go, anchored where the
+        // pointer is: the point under it stays under it when the easing
+        // arrives. A notch is a gentle step, not a leap.
+        if (wheel != 0) {
+            const base = s.zoom_target orelse fit;
+            const lo = @min(fit, 1.0);
+            const hi = @max(fit, 1.0) * 8.0;
+            const next = std.math.clamp(base * std.math.pow(f32, 1.15, wheel / 120), lo, hi);
+            const bw = img_w * base;
+            const bh = img_h * base;
+            const mx = c.input.mouse.x - ((c.size.w - bw) / 2 + s.pan_tx);
+            const my = c.input.mouse.y - ((c.size.h - bh) / 2 + s.pan_ty);
+            if (base > 0) {
+                s.pan_tx += mx - mx * next / base;
+                s.pan_ty += my - my * next / base;
+            }
+            s.zoom_target = next;
+            if (s.zoom == null) s.zoom = fit;
+            s.zoom_moving = true;
+            c.changed = true;
+        }
+        // The zoom eases toward where the wheel sent it. Zoom and
+        // position travel together, so the anchored point stays put all
+        // the way there, and another frame is asked for until they land.
+        if (s.zoom_moving) {
+            if (s.zoom_target) |target| {
+                const tw = img_w * target;
+                const thh = img_h * target;
+                const to_x = std.math.clamp(s.pan_tx, -@max(0, (tw - room_w) / 2), @max(0, (tw - room_w) / 2));
+                const to_y = std.math.clamp(s.pan_ty, -@max(0, (thh - room_h) / 2), @max(0, (thh - room_h) / 2));
+                s.pan_tx = to_x;
+                s.pan_ty = to_y;
+                const cur = s.zoom orelse fit;
+                const next_zoom = cur + (target - cur) * 0.3;
+                const next_x = s.pan_x + (to_x - s.pan_x) * 0.3;
+                const next_y = s.pan_y + (to_y - s.pan_y) * 0.3;
+                const arrived = @abs(target - next_zoom) < @max(0.001, target * 0.002) and
+                    @abs(to_x - next_x) < 0.5 and @abs(to_y - next_y) < 0.5;
+                if (arrived) {
+                    s.pan_x = to_x;
+                    s.pan_y = to_y;
+                    if (target <= fit + 0.01) {
+                        // Back at the fit: the zoom lets the window
+                        // decide again.
+                        s.zoom = null;
+                        s.zoom_target = null;
+                    } else {
+                        s.zoom = target;
+                    }
+                    s.zoom_moving = false;
+                } else {
+                    s.zoom = next_zoom;
+                    s.pan_x = next_x;
+                    s.pan_y = next_y;
+                    c.animationFrame();
+                }
+            } else {
+                s.zoom_moving = false;
+            }
+        }
         const zoom = s.zoom orelse fit;
         const w = img_w * zoom;
         const h = img_h * zoom;
-        if (wheel != 0) {
-            const base = s.zoom orelse fit;
-            const lo = @min(fit, 1.0);
-            const hi = @max(fit, 1.0) * 8.0;
-            const next = std.math.clamp(base * std.math.pow(f32, 1.15, wheel / 12), lo, hi);
-            // The point of the picture under the pointer stays there.
-            const mx = c.input.mouse.x - ((c.size.w - w) / 2 + s.pan_x);
-            const my = c.input.mouse.y - ((c.size.h - h) / 2 + s.pan_y);
-            if (base > 0) {
-                s.pan_x += mx - mx * next / base;
-                s.pan_y += my - my * next / base;
-            }
-            s.zoom = next;
-            c.changed = true;
-        }
-        // The picture dragged from the middle, held inside the overflow.
-        const overflow_x = @max(0, (w - room_w) / 2);
-        const overflow_y = @max(0, (h - room_h) / 2);
-        s.pan_x = std.math.clamp(s.pan_x, -overflow_x, overflow_x);
-        s.pan_y = std.math.clamp(s.pan_y, -overflow_y, overflow_y);
 
         const texture = ui.Texture{ .width = pixels.w, .height = pixels.h, .bgra = pixels.bgra };
         const frame = ui.div(c)
@@ -193,17 +238,31 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             .shadowMd();
         defer frame.end();
         const inter = frame.interaction();
-        // Two clicks: fit and 1:1 change places.
+        // Two clicks: fit and 1:1 change places, eased as the wheel does.
         if (inter.double_clicked) {
-            s.zoom = if ((s.zoom orelse fit) > fit + 0.01) null else 1.0;
-            s.pan_x = 0;
-            s.pan_y = 0;
+            if ((s.zoom orelse fit) > fit + 0.01) {
+                s.zoom_target = fit;
+            } else {
+                s.zoom_target = 1.0;
+                if (s.zoom == null) s.zoom = fit;
+            }
+            s.pan_tx = 0;
+            s.pan_ty = 0;
+            s.zoom_moving = true;
             c.changed = true;
         } else if (inter.pressed and zoom > fit + 0.01) {
-            // Dragging the picture when it is bigger than the room.
+            // Dragging the picture when it is bigger than the room: hand
+            // and target move together, so the easing has nothing to
+            // undo.
             if (s.panning) {
-                s.pan_x += c.input.mouse.x - s.last_mouse_x;
-                s.pan_y += c.input.mouse.y - s.last_mouse_y;
+                const dx = c.input.mouse.x - s.last_mouse_x;
+                const dy = c.input.mouse.y - s.last_mouse_y;
+                const ox = @max(0, (w - room_w) / 2);
+                const oy = @max(0, (h - room_h) / 2);
+                s.pan_x = std.math.clamp(s.pan_x + dx, -ox, ox);
+                s.pan_y = std.math.clamp(s.pan_y + dy, -oy, oy);
+                s.pan_tx = s.pan_x;
+                s.pan_ty = s.pan_y;
                 c.changed = true;
             }
             s.panning = true;
@@ -214,17 +273,22 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         }
         _ = ui.texture(c, .{ .width = .fill, .height = .fill }, texture, .{ 0, 0, 1, 1 }, 1);
 
-        // The zoom, as a chip by the picture: shown only when it differs from
-        // the fit, since "100%" of nothing means nothing to anyone.
-        if (zoom > fit + 0.01) {
+        // The zoom, fixed in the corner and always there, the way the
+        // panel of facts is: at the fit it says so; zoomed, it says how
+        // much.
+        {
             const chip = ui.div(c).absolute()
-                .offset(c.size.w - 92, c.size.h - 56)
+                .offset(c.size.w - 122, c.size.h - 56)
                 .px(12)
                 .py(6)
                 .rounded(8)
                 .bg(ui.Color.black.alpha(0.45));
             defer chip.end();
-            ui.text(c, c.print("{d:.0}%", .{zoom * 100}), .{ .size = 12, .color = ui.Color.white });
+            if (zoom > fit + 0.01) {
+                ui.text(c, c.print("{d:.0}%", .{zoom * 100}), .{ .size = 12, .color = ui.Color.white });
+            } else {
+                ui.text(c, tr.fit_label, .{ .size = 12, .color = ui.Color.white });
+            }
         }
     } else {
         // The worker is still on it: another frame as soon as it lands.
