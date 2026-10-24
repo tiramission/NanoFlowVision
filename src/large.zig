@@ -184,6 +184,14 @@ pub fn view(s: *app.State, c: *ui.Context) void {
                 s.pan_tx += mx - mx * next / base;
                 s.pan_ty += my - my * next / base;
             }
+            // The target stays inside the target zoom's own overflow:
+            // zooming out must not leave the room empty at the edges.
+            const nw = img_w * next;
+            const nh = img_h * next;
+            const nox = @max(0, (nw - room_w) / 2);
+            const noy = @max(0, (nh - room_h) / 2);
+            s.pan_tx = std.math.clamp(s.pan_tx, -nox, nox);
+            s.pan_ty = std.math.clamp(s.pan_ty, -noy, noy);
             if (next <= fit + 0.01) {
                 s.zoom = null;
                 s.zoom_target = null;
@@ -197,12 +205,13 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         // What the frame shows: the framework's own easing carries the
         // zoom and the position from where they are toward their targets,
         // by the clock rather than by the frame, and it keeps asking for
-        // frames until they arrive. Zoom and position travel together, so
-        // the anchored point stays put all the way there.
+        // frames until they arrive. One speed for all three, or the
+        // anchored point would drift while they travelled; at the fit the
+        // position's target is the middle, eased to like any other.
         const at_fit = s.zoom_target == null;
-        const zoom = c.animate(zoom_anim, 0, s.zoom_target orelse fit, 10);
-        const pan_x = if (at_fit) 0 else c.animate(pan_x_anim, 0, s.pan_tx, 18);
-        const pan_y = if (at_fit) 0 else c.animate(pan_y_anim, 0, s.pan_ty, 18);
+        const zoom = c.animate(zoom_anim, 0, s.zoom_target orelse fit, 12);
+        const pan_x = c.animate(pan_x_anim, 0, if (at_fit) 0 else s.pan_tx, 12);
+        const pan_y = c.animate(pan_y_anim, 0, if (at_fit) 0 else s.pan_ty, 12);
         const w = img_w * zoom;
         const h = img_h * zoom;
 
