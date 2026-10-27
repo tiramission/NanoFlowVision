@@ -10,8 +10,10 @@ const ui = nanoui.ui;
 
 const app = @import("app.zig");
 const exif = @import("exif.zig");
+const filmstrip = @import("filmstrip.zig");
 const model = @import("model.zig");
 const ops = @import("ops.zig");
+const theme = @import("theme.zig");
 const thumbs = @import("thumbs.zig");
 const i18n = @import("i18n.zig");
 const xmp = @import("xmp.zig");
@@ -24,7 +26,8 @@ const pan_x_anim: u64 = 0x7A00C1A2;
 const pan_y_anim: u64 = 0x7A00C1A3;
 
 /// Opens a picture large. Its own cache key keeps the big pixels from
-/// pushing the thumbnails out.
+/// pushing the thumbnails out. The keyboard's place follows it, so the
+/// escape back to the wall lands on the tile it came from.
 pub fn show(s: *app.State, pic: *model.Picture) void {
     close(s);
     s.zoom = null;
@@ -32,6 +35,12 @@ pub fn show(s: *app.State, pic: *model.Picture) void {
     s.large_key = key;
     s.large = pic;
     s.pool.ask(pic.path, key, .large);
+    for (s.shown, 0..) |p, i| {
+        if (p == pic) {
+            s.select.cursor = i;
+            break;
+        }
+    }
 }
 
 /// Closes the large view, and the tag typing with it.
@@ -114,6 +123,23 @@ fn save(s: *app.State, pic: *model.Picture, m: *const exif.Meta) void {
     s.shared.setMeta(pic.path, m.*);
 }
 
+/// Fit and 1:1 change places: the wheel's double click, the chip and
+/// `z` all say the same thing. The pan goes back to the middle, eased
+/// like any other move. Which of the two the view is at is the
+/// target's own word, not the zoom's size against the fit -- a small
+/// photograph's fit is bigger than 1:1, and the two must still trade.
+fn toggleZoom(s: *app.State) void {
+    if (s.zoom_target != null) {
+        s.zoom_target = null;
+        s.zoom = null;
+    } else {
+        s.zoom_target = 1.0;
+        s.zoom = 1.0;
+    }
+    s.pan_tx = 0;
+    s.pan_ty = 0;
+}
+
 /// The picture, large, over a dark room.
 pub fn view(s: *app.State, c: *ui.Context) void {
     const th = c.theme;
@@ -156,11 +182,25 @@ pub fn view(s: *app.State, c: *ui.Context) void {
     const key = s.large_key orelse return;
     s.pool.ask(pic.path, key, .large);
 
+    // The place this one holds in the gallery: the count at the top,
+    // and the strip's ring.
+    var at: usize = 0;
+    for (s.shown, 0..) |p, i| {
+        if (p == pic) {
+            at = i;
+            break;
+        }
+    }
+
     var m: exif.Meta = s.shared.metaOf(pic.path) orelse exif.Meta{};
     const tr = i18n.strings(s.lang);
+    // `z` lands where the fit is known: the keys are read here, the
+    // zoom answers when the picture's own size is on the table.
+    var zoom_toggle = false;
     if (editable(pic.name)) {
-        // The number keys rate the picture; `t` starts a tag. While the
-        // tag is being typed, the keys belong to the field.
+        // The number keys rate the picture; `t` starts a tag; `i` folds
+        // the panel of facts. While the tag is being typed, the keys
+        // belong to the field.
         if (!s.tag_editing) {
             for (c.input.chars) |ch| {
                 if (ch >= '0' and ch <= '5') rate(s, pic, &m, @intCast(ch - '0'));
@@ -168,6 +208,8 @@ pub fn view(s: *app.State, c: *ui.Context) void {
                     s.tag_editing = true;
                     s.tag_field.clear();
                 }
+                if (ch == 'z' or ch == 'Z') zoom_toggle = true;
+                if (ch == 'i' or ch == 'I') s.info_open = !s.info_open;
             }
         }
     }
@@ -184,12 +226,17 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         const img_h: f32 = @floatFromInt(pixels.h);
         const fit = @min(room_w / img_w, room_h / img_h);
         const wheel = c.input.scroll.y;
+        if (zoom_toggle) toggleZoom(s);
 
         // Where the wheel wants the zoom to go, anchored where the
         // pointer is: the point under it stays under it when the easing
         // arrives. A notch is a gentle step, not a leap. The wheel back
-        // to the fit hands the size back to the window.
-        if (wheel != 0) {
+        // to the fit hands the size back to the window. Over the strip
+        // at the foot, the wheel steps along the gallery instead.
+        if (wheel != 0 and c.input.mouse.y >= c.size.h - filmstrip.strip_h) {
+            neighbor(s, if (wheel < 0) 1 else -1);
+            c.changed = true;
+        } else if (wheel != 0) {
             const base = s.zoom_target orelse fit;
             const lo = @min(fit, 1.0);
             const hi = @max(fit, 1.0) * 8.0;
@@ -246,15 +293,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             // Two clicks: fit and 1:1 change places, eased as the wheel
             // does.
             if (inter.double_clicked) {
-                if ((s.zoom orelse fit) > fit + 0.01) {
-                    s.zoom_target = null;
-                    s.zoom = null;
-                } else {
-                    s.zoom_target = 1.0;
-                    s.zoom = 1.0;
-                }
-                s.pan_tx = 0;
-                s.pan_ty = 0;
+                toggleZoom(s);
                 c.changed = true;
             } else if (inter.pressed and zoom > fit + 0.01) {
                 // Dragging the picture when it is bigger than the room:
@@ -280,23 +319,24 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             _ = ui.texture(c, .{ .width = .fill, .height = .fill }, texture, .{ 0, 0, 1, 1 }, 1);
         }
 
-        // The zoom, fixed in the corner of the window and always there,
-        // the way the panel of facts is: at the fit it says so; zoomed,
-        // it says how much. The frame is closed by now, or this would be
-        // anchored to the picture and travel with it.
+        // The zoom, at the foot of the window and always there, just
+        // above the strip: at the fit it says so; zoomed, it says how
+        // much. A click on it, like the wheel's double click and `z`,
+        // makes fit and 1:1 change places.
         {
             const chip = ui.div(c).absolute()
-                .offset(c.size.w - 122, c.size.h - 56)
+                .offset(c.size.w - 122, c.size.h - filmstrip.strip_h - 48)
                 .px(12)
                 .py(6)
                 .rounded(8)
-                .bg(ui.Color.black.alpha(0.45));
+                .bg(ui.Color.black.alpha(0.45)).control();
             defer chip.end();
-            if (zoom > fit + 0.01) {
-                ui.text(c, c.print("{d:.0}%", .{zoom * 100}), .{ .size = 12, .color = ui.Color.white });
+            if (s.zoom_target != null) {
+                ui.textf(c, .{ .size = 12, .mono = true, .color = ui.Color.white }, "{d:.0}%", .{zoom * 100});
             } else {
-                ui.text(c, tr.fit_label, .{ .size = 12, .color = ui.Color.white });
+                ui.text(c, tr.fit_label, .{ .size = 12, .mono = true, .color = ui.Color.white });
             }
+            if (chip.clicked()) toggleZoom(s);
         }
     } else {
         // The worker is still on it: another frame as soon as it lands.
@@ -306,8 +346,37 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         ui.icon(c, "circle.dotted", .{ .size = 14, .color = th.muted });
         ui.text(c, i18n.strings(s.lang).loading, .{ .size = 14, .color = th.muted });
     }
-    // What the picture says about itself, in the corner: its camera,
-    // when it was taken, how, and what it means to us.
+
+    // The bar along the top: where this one stands in the gallery, its
+    // name, and its stars -- which take a click, where the panel's take
+    // the keys.
+    {
+        const bar = ui.div(c).absolute().offset(0, 0).w(c.size.w).h(44)
+            .row().itemsCenter().gap(12).px(16)
+            .bg(ui.Color.black.alpha(0.45));
+        defer bar.end();
+        ui.textf(c, .{ .size = 13, .mono = true, .color = .white }, "{d} / {d}", .{ at + 1, s.shown.len });
+        ui.text(c, pic.name, .{ .size = 13, .color = .white });
+        ui.spacer(c);
+        if (editable(pic.name)) {
+            var st: i8 = 1;
+            while (st <= 5) : (st += 1) {
+                const star = ui.div(c).row().w(26).h(26).center().control();
+                defer star.end();
+                ui.text(c, if (m.rating >= st) "★" else "☆", .{ .size = 15, .color = if (m.rating >= st) .white else ui.Color.white.alpha(0.4) });
+                if (star.clicked()) rate(s, pic, &m, st);
+            }
+        }
+    }
+
+    // The strip: the gallery as it stands around this one, a click away,
+    // with the wheel over it stepping along instead of zooming.
+    s.filmstrip_at.clearRetainingCapacity();
+    if (filmstrip.view(s, c, at)) |i| show(s, s.shown[i]);
+    // What the picture says about itself, in its panel card at the
+    // corner: its camera, when it was taken, how, and what it means to
+    // us. `i`, or a click on the panel's own mark, folds it to a single
+    // line and back.
     if (!m.empty()) {
         var line: [256]u8 = undefined;
         var n: usize = 0;
@@ -367,51 +436,71 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         }
 
         // The panel rides on a scrim of its own, and its colours are its
-        // own: a photograph can be white, black, or anything between, and
-        // the words stay legible on all of them.
-        const panel = ui.div(c).absolute().offset(24, 24).p(12).gap(5).rounded(10)
-            .bg(ui.Color.black.alpha(0.45));
-        defer panel.end();
-        if (n > 0) ui.text(c, c.print("{s}", .{line[0..n]}), .{ .size = 13, .weight = .semibold, .color = .white });
-        if (sn > 0) ui.text(c, c.print("{s}", .{stars[0..sn]}), .{ .size = 16, .color = .white });
-        if (f > 0) ui.text(c, c.print("{s}", .{facts[0..f]}), .{ .size = 13, .color = ui.Color.white.alpha(0.78) });
-        if (m.tags_n > 0 and editable(pic.name)) {
-            ui.row(c, .{ .gap = 6 });
-            defer c.end();
-            var i: usize = 0;
-            while (i < m.tags_n) {
-                {
-                    const it = ui.pressable(c, .{
-                        .padding = .xy(8, 3),
-                        .radius = 5,
-                        .align_items = .center,
-                        .control = true,
-                        .background = ui.Color.white.alpha(0.14),
-                    }, ui.Color.white.alpha(0.24));
-                    defer c.end();
-                    ui.text(c, c.print("{s} ✕", .{m.tagOf(i)}), .{ .size = 12, .color = .white });
-                    if (it.clicked) {
-                        removeTag(s, pic, &m, i);
-                        continue;
+        // own: a photograph can be white, black, or anything between,
+        // and the words stay legible on all of them. Folded, it is one
+        // line -- the mark and the word -- and no more.
+        if (s.info_open) {
+            const panel = ui.div(c).absolute().offset(24, 24).w(300).p(12).gap(5).rounded(10)
+                .bg(ui.Color.black.alpha(0.45));
+            defer panel.end();
+            {
+                const head = ui.div(c).row().wFull().itemsCenter().gap(6).control();
+                defer head.end();
+                ui.icon(c, "info", .{ .size = 12, .color = .white });
+                ui.text(c, tr.info, .{ .size = 12, .weight = .semibold, .color = .white });
+                ui.spacer(c);
+                ui.icon(c, "chevron.up", .{ .size = 11, .color = ui.Color.white.alpha(0.6) });
+                if (head.clicked()) s.info_open = false;
+            }
+            if (n > 0) ui.text(c, c.print("{s}", .{line[0..n]}), .{ .size = 13, .weight = .semibold, .color = .white });
+            if (sn > 0) ui.text(c, c.print("{s}", .{stars[0..sn]}), .{ .size = 16, .color = .white });
+            if (f > 0) ui.text(c, c.print("{s}", .{facts[0..f]}), .{ .size = 13, .color = ui.Color.white.alpha(0.78) });
+            if (m.tags_n > 0 and editable(pic.name)) {
+                ui.row(c, .{ .gap = 6 });
+                defer c.end();
+                var i: usize = 0;
+                while (i < m.tags_n) {
+                    {
+                        const it = ui.pressable(c, .{
+                            .padding = .xy(8, 3),
+                            .radius = 5,
+                            .align_items = .center,
+                            .control = true,
+                            .background = ui.Color.white.alpha(0.14),
+                        }, ui.Color.white.alpha(0.24));
+                        defer c.end();
+                        ui.text(c, c.print("{s} ✕", .{m.tagOf(i)}), .{ .size = 12, .color = .white });
+                        if (it.clicked) {
+                            removeTag(s, pic, &m, i);
+                            continue;
+                        }
                     }
+                    i += 1;
                 }
-                i += 1;
             }
-        }
-        if (s.tag_editing) {
-            const field = ui.textField(c, &s.tag_field, .{
-                .placeholder = tr.add_tag,
-                .width = .{ .px = 220 },
-                .size = 13,
-            });
-            if (field.submitted) {
-                const tag = std.mem.trim(u8, s.tag_field.text(), " ");
-                if (tag.len > 0) addTag(s, pic, &m, tag);
-                s.tag_field.clear();
-                s.tag_editing = false;
+            if (s.tag_editing) {
+                const field = ui.textField(c, &s.tag_field, .{
+                    .placeholder = tr.add_tag,
+                    .width = .{ .px = 220 },
+                    .size = 13,
+                });
+                if (field.submitted) {
+                    const tag = std.mem.trim(u8, s.tag_field.text(), " ");
+                    if (tag.len > 0) addTag(s, pic, &m, tag);
+                    s.tag_field.clear();
+                    s.tag_editing = false;
+                }
+            } else if (editable(pic.name)) {
+                ui.text(c, tr.keys_hint, .{ .size = 11, .color = ui.Color.white.alpha(0.55) });
             }
-        } else if (editable(pic.name)) {
-            ui.text(c, tr.keys_hint, .{ .size = 11, .color = ui.Color.white.alpha(0.55) });
+        } else {
+            const mark = ui.div(c).absolute().offset(24, 24)
+                .row().itemsCenter().gap(6).px(10).py(6).rounded(8)
+                .bg(ui.Color.black.alpha(0.45)).control();
+            defer mark.end();
+            ui.icon(c, "info", .{ .size = 12, .color = .white });
+            ui.text(c, tr.info, .{ .size = 12, .color = .white });
+            if (mark.clicked()) s.info_open = true;
         }
     }
 }

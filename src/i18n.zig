@@ -87,6 +87,8 @@ pub const Strings = struct {
     trash_confirm_title: []const u8,
     trash_confirm_body: []const u8,
     trash_selected: []const u8,
+    /// The large view's panel of facts, folded and open.
+    info: []const u8,
 };
 
 const en: Strings = .{
@@ -156,6 +158,7 @@ const en: Strings = .{
     .trash_confirm_title = "Delete {d} pictures?",
     .trash_confirm_body = "First {s} · last {s}. They can be restored from the system bin.",
     .trash_selected = "Move to Recycle Bin",
+    .info = "Info",
 };
 
 const zh: Strings = .{
@@ -225,6 +228,7 @@ const zh: Strings = .{
     .trash_confirm_title = "删除 {d} 张图片？",
     .trash_confirm_body = "首张 {s} · 末张 {s}。可在系统回收站中恢复。",
     .trash_selected = "移到回收站",
+    .info = "信息",
 };
 
 /// The strings for `lang`.
@@ -367,7 +371,7 @@ test "both languages carry every string, non-empty" {
             s.selected_of,   s.select_all,
             s.clear_selection, s.dim_unselected,
             s.trash_confirm_title, s.trash_confirm_body,
-            s.trash_selected,
+            s.trash_selected,   s.info,
         };
         for (all) |v| try std.testing.expect(v.len > 0);
     }

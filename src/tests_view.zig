@@ -8,6 +8,7 @@ const ui = nanoui.ui;
 const app = @import("app.zig");
 const exif = @import("exif.zig");
 const tests_mod = @import("tests.zig");
+const thumbs = @import("thumbs.zig");
 
 comptime {
     _ = @import("tests_shell.zig");
@@ -134,6 +135,120 @@ test "the tree unfolds at a folder's chevron, without opening it" {
     const r2024b = t.findText("2024").?;
     try std.testing.expect(r2024b.y > ralb2.y + ralb2.h);
     t.screenshot("docs/tree-expanded.png") catch {};
+}
+
+test "the large view says where it stands, and the strip walks it" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 12);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 900 });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    t.frame();
+    t.frame();
+
+    // Opened large, the view says which one of twelve it is, and names
+    // the file.
+    const where = state.first_picture orelse return error.NoPictureOnScreen;
+    t.doubleClick(where.x + where.w / 2, where.y + where.h / 2);
+    t.settle(0.2);
+    try std.testing.expect(state.large != null);
+    try std.testing.expect(t.hasText("1 / 12"));
+    try std.testing.expect(t.containsText("pic-0.png"));
+
+    // The strip's cells stand where the state wrote them: the fifth
+    // takes the view there, and the count says so.
+    try tests_mod.waitForThumbs(&t, state);
+    t.frame();
+    t.frame();
+    const cell = state.filmstrip_at.items[4];
+    t.click(cell.x + cell.w / 2, cell.y + cell.h / 2);
+    t.settle(0.2);
+    try std.testing.expect(t.hasText("5 / 12"));
+    try std.testing.expectEqual(@as(usize, 4), state.select.cursor.?);
+
+    // Escape back to the wall: the keyboard lands where the view was.
+    _ = t.shortcut(.{ .key = ui.Shortcut.escape });
+    t.settle(0.2);
+    try std.testing.expect(state.large == null);
+    try std.testing.expectEqual(@as(usize, 4), state.select.cursor.?);
+}
+
+test "the large view's panel folds to a line, and the zoom speaks" {
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const f = exif.Fixture.build(.little);
+    const jpeg = try tests_mod.exifJpeg(gpa, &f);
+    defer gpa.free(jpeg);
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "pic.jpg", .data = jpeg });
+    const cwd = try std.process.currentPathAlloc(std.testing.io, gpa);
+    defer gpa.free(cwd);
+    const path = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/tmp/{s}", .{ cwd, tmp.sub_path });
+    defer gpa.free(path);
+
+    const state = try app.State.create(gpa, std.testing.io, path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 900 });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    t.frame();
+    t.frame();
+    const where = state.first_picture orelse return error.NoPictureOnScreen;
+    t.doubleClick(where.x + where.w / 2, where.y + where.h / 2);
+    t.settle(0.2);
+
+    // The large pixels first: the keys below land where the picture's
+    // own size is known.
+    const large_key = try thumbs.largeKey(gpa, state.large.?.path);
+    defer gpa.free(large_key);
+    var decoded = false;
+    for (0..400) |_| {
+        t.frame();
+        if (state.shared.get(large_key)) |known| {
+            if (known.thumb != null) {
+                decoded = true;
+                break;
+            }
+        }
+        std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake) catch {};
+    }
+    try std.testing.expect(decoded);
+
+    // Open, the panel says what the picture says about itself.
+    try std.testing.expect(t.containsText("ISO 200"));
+
+    // `i` folds it to a line: the facts are gone, the word is not.
+    t.typeText("i");
+    t.settle(0.1);
+    try std.testing.expect(!state.info_open);
+    try std.testing.expect(!t.containsText("ISO 200"));
+    try std.testing.expect(t.hasText("Info"));
+
+    // And back.
+    t.typeText("i");
+    t.settle(0.1);
+    try std.testing.expect(state.info_open);
+    try std.testing.expect(t.containsText("ISO 200"));
+
+    // `z`: the zoom stands at 1:1 and says so, in its own figures --
+    // said once the easing has arrived, which takes its few frames.
+    t.typeText("z");
+    t.settle(0.5);
+    try std.testing.expect(state.zoom != null);
+    try std.testing.expect(t.hasText("100%"));
+
+    // Again: back to the fit, said in words.
+    t.typeText("z");
+    t.settle(0.2);
+    try std.testing.expect(state.zoom_target == null);
+    try std.testing.expect(t.hasText("Fit"));
 }
 
 test "another folder can become the root" {

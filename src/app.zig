@@ -89,7 +89,7 @@ pub const State = struct {
     shown_version: u64 = 0,
     /// The menu of one picture, and the corner it opens from.
     menu_for: ?*model.Picture = null,
-    menu_at: ui.Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
+    menu_at: ui.Rect = .{},
     /// The rename box, for the picture being renamed.
     renaming: ?*model.Picture = null,
     rename_field: ui.TextBuffer = .{},
@@ -141,16 +141,15 @@ pub const State = struct {
     /// The command bar's two menus, and the buttons they hang from.
     sort_open: bool = false,
     density_open: bool = false,
-    sort_at: ui.Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
-    density_at: ui.Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
+    sort_at: ui.Rect = .{},
+    density_at: ui.Rect = .{},
     /// What the operations said back, drawn last in the frame.
     toaster: kit.Toaster,
     /// The pictures the reader has chosen, keyed by their paths: a click
     /// picks, the keyboard walks, the bulk acts on all of them.
     select: select.Select = undefined,
-    /// The pictures the reader said to take to the bin, waiting for the
-    /// word: pointers into the folder's own list, which cannot change
-    /// while the confirmation stands over it.
+    /// The pictures waiting for the bin's second word: pointers into
+    /// the folder's list, which cannot change while the dialog stands.
     confirming_trash: std.ArrayList(*model.Picture) = .empty,
     /// The folder shown could not be read: the dialog says so, over an
     /// empty page, until another folder opens.
@@ -163,6 +162,11 @@ pub const State = struct {
     /// carries what is drawn there by the clock.
     zoom: ?f32 = null,
     zoom_target: ?f32 = null,
+    /// Whether the large view's panel of facts is open: `i` folds it to
+    /// a single line and back.
+    info_open: bool = true,
+    /// The filmstrip's cells this frame, for the tests that click them.
+    filmstrip_at: std.ArrayList(ui.Rect) = .empty,
     pan_tx: f32 = 0,
     pan_ty: f32 = 0,
     panning: bool = false,
@@ -211,6 +215,7 @@ pub const State = struct {
         if (s.reroot_pending) |path| s.gpa.free(path);
         s.keep.deinit(s.gpa);
         s.toaster.deinit();
+        s.filmstrip_at.deinit(s.gpa);
         s.gpa.destroy(s);
     }
 
@@ -515,9 +520,7 @@ pub const State = struct {
         for (s.shown, 0..) |pic, i| {
             s.aspects[i] = s.shared.aspectOf(pic.path) orelse 1;
         }
-        // The density sets how wide a column is aiming to be: 128, 256
-        // or 512 points tall, which is the same thing said as a picture
-        // of square proportions.
+        // The density aims the columns at 128, 256 or 512 points tall.
         const layout = masonry.compute(s.gpa, s.aspects[0..s.shown.len], width, .{
             .columns = max_columns,
             .target = s.density.row(),
@@ -534,12 +537,10 @@ pub const State = struct {
         if (s.reduce_motion) c.reduced_motion = true;
         // Dark or light, wherever the eye is.
         if (c.shortcut(.{ .key = 'd', .ctrl = true })) s.toggleDark();
-        // The escape that falls all the way down the layers: the ones
-        // below take it first -- a field's typing, the menu and the
-        // boxes, the large view. When nothing is up, it lets go of the
-        // choice, and that is the last thing it takes away. The key is
-        // only looked at here, never taken: taking it would be stealing
-        // it from the layer that owns it.
+        // The escape that falls all the way down the layers: those below
+        // take it first, and when nothing is up it lets go of the choice.
+        // Only looked at here, never taken -- taking it would steal it
+        // from the layer that owns it.
         const plain_esc = if (c.input.shortcut) |sc| sc.key == ui.Shortcut.escape else false;
         if (plain_esc and
             s.large == null and s.menu_for == null and !s.rename_open and
@@ -596,5 +597,4 @@ pub const State = struct {
         // And what the operations said, over all of it.
         s.toaster.view(c);
     }
-
 };
