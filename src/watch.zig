@@ -13,6 +13,9 @@ const app = @import("app.zig");
 extern "kernel32" fn CreateFileW(name: [*:0]const u16, access: u32, share: u32, security: ?*anyopaque, disposition: u32, flags: u32, template: ?*anyopaque) ?*anyopaque;
 extern "kernel32" fn ReadDirectoryChangesW(handle: ?*anyopaque, out: [*]u8, len: u32, subtree: i32, filter: u32, returned: ?*u32, overlapped: ?*OVERLAPPED, completion: ?*anyopaque) i32;
 extern "kernel32" fn CreateEventW(attrs: ?*anyopaque, manual: i32, initial: i32, name: ?[*:0]const u16) ?*anyopaque;
+extern "kernel32" fn WaitForMultipleObjects(handles: [*]const ?*anyopaque, count: u32, wait_all: i32, ms: u32) u32;
+extern "kernel32" fn SetEvent(handle: ?*anyopaque) i32;
+extern "kernel32" fn ResetEvent(handle: ?*anyopaque) i32;
 extern "kernel32" fn WaitForSingleObject(handle: ?*anyopaque, ms: u32) u32;
 extern "kernel32" fn CloseHandle(handle: ?*anyopaque) i32;
 extern "kernel32" fn CancelIoEx(handle: ?*anyopaque, overlapped: ?*OVERLAPPED) i32;
@@ -40,6 +43,10 @@ pub const Watcher = struct {
     /// The watched folder, owned. Null when nothing is watched.
     dir_path: ?[]u8 = null,
     handle: ?*anyopaque = null,
+    /// The event a stop is rung on, made once and kept: a stop that races
+    /// the thread's own start must always have something to ring, or the
+    /// join would wait on a thread that waits forever.
+    stop_event: ?*anyopaque = null,
     stop: std.atomic.Value(bool) = .init(false),
     thread: ?std.Thread = null,
     app: *app.State,
@@ -55,6 +62,11 @@ pub const Watcher = struct {
         const owned = self.gpa.dupe(u8, dir) catch return;
         self.dir_path = owned;
         self.stop.store(false, .release);
+        if (self.stop_event == null) {
+            self.stop_event = CreateEventW(null, 1, 0, null);
+        } else {
+            _ = ResetEvent(self.stop_event.?);
+        }
         self.thread = std.Thread.spawn(.{}, loop, .{self}) catch {
             self.gpa.free(owned);
             self.dir_path = null;
@@ -62,11 +74,22 @@ pub const Watcher = struct {
         };
     }
 
+    /// Everything a watcher ever took is given back: the thread stopped,
+    /// the path freed, the stop event closed.
+    pub fn deinit(self: *Watcher) void {
+        self.stopCurrent();
+        if (self.stop_event) |e| {
+            _ = CloseHandle(e);
+            self.stop_event = null;
+        }
+    }
+
     /// Stops watching and waits for the thread: the pending read is
     /// cancelled, so the wait ends now, not at the next change.
     pub fn stopCurrent(self: *Watcher) void {
         if (self.thread) |t| {
             self.stop.store(true, .release);
+            if (self.stop_event) |e| _ = SetEvent(e);
             if (comptime builtin.os.tag == .windows) {
                 if (self.handle) |h| _ = CancelIoEx(h, null);
             }
@@ -109,13 +132,18 @@ pub const Watcher = struct {
             null,
         ) orelse return;
         self.handle = handle;
-        defer self.handle = null;
+        defer {
+            _ = CloseHandle(handle);
+            self.handle = null;
+        }
 
         const event = CreateEventW(null, 1, 0, null) orelse return;
         defer _ = CloseHandle(event);
+        const stop_event = self.stop_event orelse return;
 
         var buffer: [64 * 1024]u8 = undefined;
         var overlapped: OVERLAPPED = .{ .event = event };
+        const waits = [_]?*anyopaque{ event, stop_event };
 
         while (!self.stop.load(.acquire)) {
             _ = ReadDirectoryChangesW(
@@ -128,7 +156,10 @@ pub const Watcher = struct {
                 &overlapped,
                 null,
             );
-            _ = WaitForSingleObject(event, INFINITE);
+            // The wait answers a change or the stop, whichever comes
+            // first: the stop is rung on its own event, so a join never
+            // waits on a thread that waits forever.
+            _ = WaitForMultipleObjects(&waits, waits.len, 0, INFINITE);
             if (self.stop.load(.acquire)) break;
             // One change is enough: the listing says what is there now.
             nanoui.App.onMain(self, changed);

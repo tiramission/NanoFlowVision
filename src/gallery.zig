@@ -8,6 +8,7 @@ const ui = nanoui.ui;
 
 const app = @import("app.zig");
 const i18n = @import("i18n.zig");
+const kit = nanoui.kit;
 const large = @import("large.zig");
 const masonry = @import("masonry.zig");
 const menu = @import("menu.zig");
@@ -22,82 +23,30 @@ const prefetch_behind: f32 = 1.0;
 /// How far above and below the window pictures are built, in windows.
 const build_margin: f32 = 0.25;
 
-/// The gallery column: the header with the search and the sort, and
-/// under it the grid.
+/// The gallery's own column: under it the grid, above it the command bar
+/// and the status bar that the shell and the statusbar draw (app.zig's
+/// `view` puts them in place).
 pub fn view(s: *app.State, c: *ui.Context) void {
     ui.column(c, .{ .grow = 1, .width = .fill, .height = .fill });
     defer ui.end(c);
-    viewToolbar(s, c);
     viewGrid(s, c);
-}
-
-/// The page's header, as nanomon draws one: the folder's name and its
-/// path on the left, the search and the sort on the right.
-fn viewToolbar(s: *app.State, c: *ui.Context) void {
-    const k = theme.colors(s.dark);
-    const tr = i18n.strings(s.lang);
-    const current = s.current;
-    const head = ui.div(c).row().wFull().h(52).itemsCenter().gap(8).px(20);
-    defer head.end();
-    if (ui.button(c, tr.up, .{ .variant = .ghost, .size = 13, .icon = "arrow.up" }).clicked) s.goUp();
-    if (current) |folder| {
-        // The name and where it lies: the column grows to what the row
-        // has left, and the path clips rather than pushing the rest away.
-        const t = ui.div(c).column().wFull().grow().gap(1).clip();
-        defer t.end();
-        ui.text(c, folder.name, .{ .size = 15, .weight = .bold, .color = k.text });
-        ui.text(c, folder.path, .{ .size = 11, .color = k.secondary });
-    }
-    // The search, with its glass in the frame: what matches stays, the
-    // rest waits its turn. The frame stretches when the window has room
-    // and keeps to its base when it has not.
-    {
-        const frame = ui.div(c).row().h(30).itemsCenter().gap(7).px(10).grow().maxW(206).rounded(8).bg(k.well).border(k.border);
-        defer frame.end();
-        ui.icon(c, "magnifyingglass", .{ .size = 12, .color = k.tertiary });
-        const field = ui.textField(c, &s.search, .{ .placeholder = tr.search_placeholder, .width = .{ .px = 150 }, .size = 13, .bare = true });
-        if (field.changed) s.orderChanged();
-    }
-    // The sort, and the way it goes.
-    const sort_labels = [_][]const u8{ tr.sort_name, tr.sort_date, tr.sort_size, tr.sort_pixels, tr.sort_stars };
-    var selected: usize = @backingInt(s.sort);
-    if (ui.segmented(c, &sort_labels, &selected)) {
-        s.sort = @fromBackingInt(@intCast(selected));
-        s.sort_ascending = s.sort == .name;
-        s.orderChanged();
-    }
-    // The set has no arrow.down, so the direction speaks in chevrons:
-    // they are the same ones the tree's folders fold with.
-    if (ui.button(c, "", .{ .variant = .ghost, .size = 13, .icon = if (s.sort_ascending) "chevron.up" else "chevron.down" }).clicked) {
-        s.sort_ascending = !s.sort_ascending;
-        s.orderChanged();
-    }
-    if (current) |folder| {
-        // The count, kept to its own narrow clip so a narrow window cuts
-        // it short instead of pushing the toolbar out.
-        const count = if (s.shown.len == folder.pictures.len)
-            i18n.pictures(c.alloc(), s.lang, folder.pictures.len)
-        else
-            i18n.picturesOf(c.alloc(), s.lang, s.shown.len, folder.pictures.len);
-        const cbox = ui.div(c).column().w(66).clip();
-        defer cbox.end();
-        ui.text(c, count, .{ .size = 12, .color = k.secondary });
-    }
 }
 
 /// The pictures, in columns: only those in view are built.
 fn viewGrid(s: *app.State, c: *ui.Context) void {
     const th = c.theme;
     const tr = i18n.strings(s.lang);
-    // Esc takes the menu or the rename box away; a paste lands the
-    // clipboard's files in this folder.
-    if (c.shortcut(.{ .key = ui.Shortcut.escape })) {
-        if (s.renaming != null) {
+    // Esc takes the menu or the rename box away -- and only when one of
+    // them is actually up. A key this view does not use is left alone, so
+    // it still reaches what is drawn after it (the settings panel, for
+    // one): the layers take turns with the key, they do not race.
+    if (s.renaming != null) {
+        if (c.shortcut(.{ .key = ui.Shortcut.escape })) {
             s.renaming = null;
             s.rename_field.clear();
-        } else if (s.menu_for != null) {
-            s.menu_for = null;
         }
+    } else if (s.menu_for != null) {
+        if (c.shortcut(.{ .key = ui.Shortcut.escape })) s.menu_for = null;
     }
     if (c.shortcut(.{ .key = 'v', .ctrl = true })) menu.paste(s);
     const id = c.peekId(null);
@@ -164,6 +113,14 @@ fn viewGrid(s: *app.State, c: *ui.Context) void {
             ui.label(c, tr.no_pictures);
         } else {
             ui.text(c, i18n.noMatches(c.alloc(), s.lang, s.search.text()), .{ .size = 13, .color = th.muted });
+            // The way out, at hand: one click undoes the filter, and the
+            // wall comes back. An empty state that only describes itself
+            // would leave the reader to find the search box again.
+            if (kit.button(c, tr.clear_search, .{ .size = .sm }).clicked) {
+                s.search.clear();
+                s.orderChanged();
+                c.changed = true;
+            }
         }
         return;
     }
@@ -185,13 +142,18 @@ fn viewGrid(s: *app.State, c: *ui.Context) void {
     s.built = 0;
     var waiting: usize = 0;
     for (s.shown, 0..) |pic, i| {
+        // The layout may still be the last folder's, or not made yet:
+        // a picture with no place waits for the frame that gives it one
+        // rather than reading past what there is.
+        if (i >= s.layout.placements.len) break;
         const place = s.layout.placements[i];
         const top = place.y - offset;
         const bottom = place.y + place.h - offset;
         if (bottom < -behind or top > view_h + ahead) continue;
-        // The thumbnail is asked for now, whether the picture is built
-        // this frame or not.
-        s.pool.ask(pic.path, pic.path, .picture);
+        // The thumbnail is asked for now, at the side the current
+        // density shows it at, whether the picture is built this frame
+        // or not.
+        s.pool.askPicture(pic.path, pic.path, s.density.side());
         if (s.shared.get(pic.path)) |known| {
             if (known.thumb == null) waiting += 1;
         } else waiting += 1;
@@ -216,7 +178,11 @@ fn viewGrid(s: *app.State, c: *ui.Context) void {
 
 fn viewPicture(s: *app.State, c: *ui.Context, pic: *model.Picture, place: masonry.Placement) void {
     const th = c.theme;
-    const box = ui.div(c).absolute().offset(place.x, place.y).w(place.w).h(place.h).rounded(8);
+    const k = theme.colors(s.dark);
+    const tr = i18n.strings(s.lang);
+    // The tile's own ground: what shows while the photograph is on its
+    // way, so the wall keeps its shape and no square is ever a mystery.
+    const box = ui.div(c).absolute().offset(place.x, place.y).w(place.w).h(place.h).rounded(4).bg(k.tile);
     defer box.end();
     const inter = box.interaction();
     if (inter.double_clicked) {
@@ -250,7 +216,16 @@ fn viewPicture(s: *app.State, c: *ui.Context, pic: *model.Picture, place: masonr
         }
     }
     if (!drew_picture) {
-        _ = c.leaf(.{ .width = .fill, .height = .fill, .radius = 8, .background = theme.colors(s.dark).well }, .none, null);
+        // Waiting and broken are two different answers: a file on its way
+        // is a plain square of tile, a file that cannot be read says so.
+        if (cached) |known| {
+            if (known.failed) {
+                const note = ui.div(c).column().wFull().hFull().center().gap(5);
+                defer note.end();
+                ui.icon(c, "exclamationmark.triangle", .{ .size = 14, .color = k.tertiary });
+                ui.text(c, tr.decode_failed, .{ .size = 12, .color = k.secondary });
+            }
+        }
     }
 
     // The menu's corner, on hover: a chip that reads on any photograph.

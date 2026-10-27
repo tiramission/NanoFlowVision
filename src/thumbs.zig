@@ -47,6 +47,10 @@ pub const Cached = struct {
     meta: ?exif.Meta = null,
     /// The thumbnail's pixels, once decoded.
     thumb: ?decode.Pixels = null,
+    /// The side those pixels were decoded for: the grid asks for another
+    /// one when the density changes, and a thumbnail is only sharp at the
+    /// side it was made for.
+    thumb_side: u32 = 0,
     /// Whether a worker is measuring it.
     measuring: bool = false,
     /// Whether a worker is decoding it.
@@ -218,18 +222,22 @@ pub const Shared = struct {
     }
 
     /// Whether a worker should be asked for this picture: true when nobody
-    /// is on it yet.
-    pub fn claim(s: *Shared, path: []const u8, kind: Kind) bool {
+    /// is on it yet. `side` is the longest side the answer must have; a
+    /// thumbnail held at another side is worth replacing, which is what
+    /// makes a density change re-decode what is on screen.
+    pub fn claim(s: *Shared, path: []const u8, kind: Kind, side: u32) bool {
         s.lock();
         defer s.unlock();
         const entry = s.entryFor(path) orelse return false;
         if (kind == .measure) {
             if (entry.measured or entry.measuring) return false;
             entry.measuring = true;
-        } else {
-            if (entry.thumb != null or entry.decoding or entry.failed) return false;
-            entry.decoding = true;
+            return true;
         }
+        if (entry.failed) return false;
+        if (entry.decoding) return false;
+        if (entry.thumb != null and entry.thumb_side == side) return false;
+        entry.decoding = true;
         return true;
     }
 
@@ -250,8 +258,8 @@ pub const Shared = struct {
         s.measured += 1;
     }
 
-    /// The picture's thumbnail.
-    pub fn setThumb(s: *Shared, gen: u64, path: []const u8, pixels: decode.Pixels) void {
+    /// The picture's thumbnail, decoded for the side it will be shown at.
+    pub fn setThumb(s: *Shared, gen: u64, path: []const u8, pixels: decode.Pixels, side: u32) void {
         s.lock();
         defer s.unlock();
         if (gen != s.generation) {
@@ -268,6 +276,7 @@ pub const Shared = struct {
         }
         s.counter += 1;
         entry.thumb = pixels;
+        entry.thumb_side = side;
         entry.decoding = false;
         entry.used = s.counter;
         s.bytes += pixels.bgra.len;
@@ -327,6 +336,9 @@ pub const Job = struct {
     path: []u8,
     /// Where its answer goes in the cache.
     key: []u8,
+    /// The longest side a decoded thumbnail comes back at; 0 for a
+    /// measurement, which decodes nothing.
+    side: u32 = 0,
     kind: Kind,
     /// The folder the job was made for.
     generation: u64,
@@ -381,7 +393,18 @@ pub const Pool = struct {
     /// Asks for a picture's size or its thumbnail, unless a worker is on it.
     /// The file is at `path`; its answer goes to `key` in the cache.
     pub fn ask(self: *Pool, path: []const u8, key: []const u8, kind: Kind) void {
-        if (!self.shared.claim(key, kind)) return;
+        const side: u32 = if (kind == .large) large_side else 0;
+        self.enqueue(path, key, kind, side);
+    }
+
+    /// Asks for a thumbnail at `side`: the grid's current density, which
+    /// is the side it will be shown at.
+    pub fn askPicture(self: *Pool, path: []const u8, key: []const u8, side: u32) void {
+        self.enqueue(path, key, .picture, side);
+    }
+
+    fn enqueue(self: *Pool, path: []const u8, key: []const u8, kind: Kind, side: u32) void {
+        if (!self.shared.claim(key, kind, side)) return;
         const generation = self.shared.currentGeneration();
         const owned_path = self.gpa.dupe(u8, path) catch return;
         errdefer self.gpa.free(owned_path);
@@ -391,6 +414,7 @@ pub const Pool = struct {
             .path = owned_path,
             .key = owned_key,
             .kind = kind,
+            .side = side,
             .generation = generation,
         }) catch {
             self.mutex.unlock(self.io);
@@ -465,12 +489,17 @@ fn run(pool: *Pool, job: Job, header: []u8) void {
             shared.setMeasured(job.generation, job.key, st);
         },
         .picture, .large => {
-            const side = if (job.kind == .large) large_side else thumb_side;
+            const side = if (job.kind == .large)
+                large_side
+            else if (job.side != 0)
+                job.side
+            else
+                thumb_side;
             const pixels = decode.decodeFile(shared.gpa, shared.io, job.path, side) catch {
                 shared.setFailed(job.generation, job.key);
                 return;
             };
-            shared.setThumb(job.generation, job.key, pixels);
+            shared.setThumb(job.generation, job.key, pixels, side);
         },
     }
     // The view draws again when the picture is ready.

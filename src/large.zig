@@ -95,7 +95,12 @@ fn removeTag(s: *app.State, pic: *model.Picture, m: *exif.Meta, i: usize) void {
 
 /// Writes the picture's file with its rating and tags as they are now.
 fn save(s: *app.State, pic: *model.Picture, m: *const exif.Meta) void {
-    xmp.rewriteFile(s.gpa, s.io, pic.path, m) catch return;
+    xmp.rewriteFile(s.gpa, s.io, pic.path, m) catch {
+        // The stars the panel now shows are not in the file: say so,
+        // rather than let the picture go on claiming them.
+        s.toast(.danger, i18n.strings(s.lang).rate_failed);
+        return;
+    };
     s.shared.setMeta(pic.path, m.*);
 }
 
@@ -121,11 +126,14 @@ pub fn view(s: *app.State, c: *ui.Context) void {
     if (c.input.key == .left or c.shortcut(.{ .key = ui.Shortcut.left, .ctrl = true })) neighbor(s, -1);
     if (c.input.key == .right or c.shortcut(.{ .key = ui.Shortcut.right, .ctrl = true })) neighbor(s, 1);
     if (c.input.key == .delete and editable(pic.name)) {
+        const here = i18n.strings(s.lang);
         if (ops.trash(pic.path)) {
+            s.toast(.success, here.trashed);
             close(s);
             s.relist_pending = true;
             return;
         }
+        s.toast(.danger, here.trash_failed);
     }
 
     const back = ui.div(c).sizeFull().bg(th.background);

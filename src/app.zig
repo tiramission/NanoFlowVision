@@ -4,6 +4,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const nanoui = @import("nanoui");
 const ui = nanoui.ui;
+const kit = nanoui.kit;
 
 const masonry = @import("masonry.zig");
 const model = @import("model.zig");
@@ -12,6 +13,9 @@ const thumbs = @import("thumbs.zig");
 const large = @import("large.zig");
 const menu = @import("menu.zig");
 const gallery = @import("gallery.zig");
+const shell = @import("shell.zig");
+const settings = @import("settings.zig");
+const statusbar = @import("statusbar.zig");
 const ops = @import("ops.zig");
 const config = @import("config.zig");
 const watch = @import("watch.zig");
@@ -20,11 +24,16 @@ const theme = @import("theme.zig");
 const nfd = @import("nfd");
 const win = @import("win.zig");
 
-/// How much room between and around the pictures.
-const gap: f32 = 8;
-const padding: f32 = 20;
-/// How many columns the gallery has at most.
-const max_columns: usize = 6;
+/// How much room between and around the pictures: the 4-point grid of
+/// the design, with 6 between neighbours (docs/redesign/03-visual.md).
+const gap: f32 = 6;
+const padding: f32 = 16;
+/// How many columns the gallery has at most. The density sets the
+/// target row height; this is only the ceiling the columns never pass.
+const max_columns: usize = 12;
+
+/// The window's own name, when nothing else is being said in the title.
+pub const app_name = "NanoFlowVision";
 
 /// What the gallery sorts by.
 pub const SortKey = enum { name, time, size, pixels, stars };
@@ -106,6 +115,32 @@ pub const State = struct {
     /// is open.
     lang: i18n.Lang = .en,
     settings_open: bool = false,
+    /// How the room is lit, how big the pictures are, and whether the
+    /// interface skips its fades: the settings sheet's three choices.
+    appearance: config.Appearance = .auto,
+    density: config.Density = .medium,
+    reduce_motion: bool = false,
+    /// How wide the navigation column is, 200 to 360.
+    rail_w: f32 = 240,
+    /// The system appearance was last asked at this frame's time, for
+    /// the "follow the system" setting, which is in no hurry.
+    system_checked: f64 = 0,
+    /// When the folder was last listed: the status bar's "3s ago".
+    /// Negative until the first frame knows what time it is.
+    listed_at: f64 = -1,
+    /// The command bar's two menus, and the buttons they hang from.
+    sort_open: bool = false,
+    density_open: bool = false,
+    sort_at: ui.Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
+    density_at: ui.Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
+    /// What the operations said back, drawn last in the frame.
+    toaster: kit.Toaster,
+    /// The folder shown could not be read: the dialog says so, over an
+    /// empty page, until another folder opens.
+    folder_broken: bool = false,
+    /// What the window's title is currently saying about the measuring:
+    /// null is the plain name. Only the changes reach the window.
+    title_percent: ?usize = null,
     /// The large view's zoom target (points per picture pixel; null
     /// fits), and where its picture is headed: the frame's own easing
     /// carries what is drawn there by the clock.
@@ -135,6 +170,7 @@ pub const State = struct {
             .shared = .{ .gpa = gpa, .io = io },
             .pool = .{ .gpa = gpa, .io = io, .shared = &s.shared },
             .tree = .{ .path = root_path, .name = root_name },
+            .toaster = .{ .gpa = gpa },
         };
         s.watcher = .{ .app = s, .gpa = gpa };
         try s.pool.start(gpa, io, &s.shared);
@@ -143,7 +179,7 @@ pub const State = struct {
     }
 
     pub fn deinit(s: *State) void {
-        s.watcher.stopCurrent();
+        s.watcher.deinit();
         s.pool.stop();
         s.pool.window = null;
         s.shared.deinit();
@@ -154,6 +190,7 @@ pub const State = struct {
         if (s.large_key) |key| s.gpa.free(key);
         if (s.reroot_pending) |path| s.gpa.free(path);
         s.keep.deinit(s.gpa);
+        s.toaster.deinit();
         s.gpa.destroy(s);
     }
 
@@ -247,15 +284,27 @@ pub const State = struct {
     pub fn relist(s: *State) void {
         const folder = s.current orelse return;
         folder.loaded = false;
-        s.loadChildren(folder) catch {};
+        s.listed_at = -1;
+        if (s.loadChildren(folder)) {
+            s.folder_broken = false;
+        } else |_| {
+            // The folder went away under the eye: the view says so.
+            s.folder_broken = true;
+        }
         // The pictures the listing brought are measured like any others.
         for (folder.pictures) |*pic| s.pool.ask(pic.path, pic.path, .measure);
         s.orderChanged();
     }
 
     /// Shows a folder's pictures.
-    fn open(s: *State, folder: *model.Folder) void {
-        s.loadChildren(folder) catch {};
+    pub fn open(s: *State, folder: *model.Folder) void {
+        if (s.loadChildren(folder)) {
+            s.folder_broken = false;
+        } else |_| {
+            // The folder could not be read -- gone, or never was one. The
+            // gallery stands empty and the view says what happened.
+            s.folder_broken = true;
+        }
         s.current = folder;
         large.close(s);
         // The cache belongs to this folder now: the answers for the old one
@@ -267,6 +316,7 @@ pub const State = struct {
         s.scroll_to_top = true;
         // A new folder starts unfiltered; the sort stays as it was.
         s.search.clear();
+        s.listed_at = -1;
         s.orderChanged();
         // Every picture's size is read first, so the layout is made once and
         // the gallery does not move under the eye as they are measured.
@@ -277,37 +327,25 @@ pub const State = struct {
     }
 
     /// Asks the reader for a folder, and queues it as the new root. The
-    /// dialog itself must not open here: this is the middle of a frame's
-    /// build, and while a dialog runs its own message pump, the frame's
-    /// timers redraw the view inside it. The loop calls back after this
-    /// frame, from outside any build, and the dialog opens there.
+    /// dialog itself must not open inside the build: `shell.askFolder`
+    /// takes the wish and the loop calls back after this frame, from
+    /// outside any build, where the dialog can open.
     pub fn openFolderDialog(s: *State) void {
         s.dialog_pending = true;
         nanoui.App.after(0, s, folderDialogFromMain);
     }
 
-    /// Runs the dialog, outside any frame. The folder goes to the queue
-    /// as before; the tree it replaces is not being walked here.
+    /// Runs the dialog, outside any frame (see `openFolderDialog`).
     fn folderDialogFromMain(ctx: ?*anyopaque) callconv(.c) void {
         const s: *State = @ptrCast(@alignCast(ctx.?));
         if (!s.dialog_pending) return;
         s.dialog_pending = false;
-        // The dialog reads a zero-ended path; the tree's own slice has no
-        // sentinel, so a copy gets one.
-        const start = s.gpa.alloc(u8, s.tree.path.len + 1) catch return;
-        defer s.gpa.free(start);
-        @memcpy(start[0..s.tree.path.len], s.tree.path);
-        start[s.tree.path.len] = 0;
-        const picked = nfd.openFolderDialog(start[0..s.tree.path.len :0]) catch return;
-        if (picked) |folder| {
-            defer nfd.freePath(folder);
-            s.queueReroot(folder);
-        }
+        shell.runFolderDialog(s);
     }
 
     /// Holds a chosen folder for the next frame, when no one is walking
     /// the tree it replaces.
-    fn queueReroot(s: *State, path: []const u8) void {
+    pub fn queueReroot(s: *State, path: []const u8) void {
         if (s.reroot_pending) |old| s.gpa.free(old);
         s.reroot_pending = s.gpa.dupe(u8, path) catch null;
     }
@@ -358,8 +396,41 @@ pub const State = struct {
     }
 
     pub fn toggleDark(s: *State) void {
-        s.setDark(!s.dark);
+        s.setAppearance(if (s.dark) .light else .dark);
+    }
+
+    /// Lights the room the way it was asked for. "Auto" reads the
+    /// system's own answer; the other two hold it still. The setting is
+    /// remembered, so the next start opens the same way.
+    pub fn setAppearance(s: *State, want: config.Appearance) void {
+        s.appearance = want;
+        s.setDark(switch (want) {
+            .auto => nanoui.isDark(),
+            .light => false,
+            .dark => true,
+        });
         s.saveSettings();
+    }
+
+    /// Says something back to the reader: what an operation did, or how
+    /// the grid is now set. Drawn last in the frame, over everything.
+    pub fn toast(s: *State, status: kit.Status, title: []const u8) void {
+        s.toaster.push(.{ .status = status, .title = title });
+    }
+
+    /// The folder could not be read: said in a dialog over the page, with
+    /// the way out at hand. The dialog is drawn here, in the frame; the
+    /// system dialog it can lead to opens after the frame, as always.
+    fn brokenFolderDialog(s: *State, c: *ui.Context) void {
+        const tr = i18n.strings(s.lang);
+        const d = kit.dialog(c, "folder-broken", &s.folder_broken, .{
+            .title = tr.folder_unreadable,
+            .description = if (s.current) |f| f.path else "",
+            .ok = tr.choose_other_folder,
+            .cancel = "",
+            .close_button = false,
+        }) orelse return;
+        if (d.end() == .ok) s.openFolderDialog();
     }
 
     /// Writes the settings as they are now: the window's frame, the look,
@@ -369,7 +440,15 @@ pub const State = struct {
     /// at its own size than at the screen's.
     pub fn saveSettings(s: *State) void {
         const dir = s.settings_dir orelse return;
-        var st: config.Settings = .{ .dark = s.dark, .recursive = s.recursive, .lang = s.lang, .root = s.tree.path };
+        var st: config.Settings = .{
+            .appearance = s.appearance,
+            .density = s.density,
+            .reduce_motion = s.reduce_motion,
+            .rail_w = s.rail_w,
+            .recursive = s.recursive,
+            .lang = s.lang,
+            .root = s.tree.path,
+        };
         if (s.window) |w| {
             const f = w.frame();
             st.x = f.x;
@@ -383,25 +462,7 @@ pub const State = struct {
         config.save(s.io, dir, st);
     }
 
-    /// The folder above the one shown.
-    pub fn goUp(s: *State) void {
-        const current = s.current orelse return;
-        if (current.depth == 0) return;
-        const parent_path = model.parentOf(current.path) orelse return;
-        var found: ?*model.Folder = null;
-        s.findChild(&s.tree, parent_path, &found);
-        if (found) |parent| s.open(parent);
-    }
-
-    fn findChild(s: *State, from: *model.Folder, path: []const u8, found: *?*model.Folder) void {
-        for (from.children) |*child| {
-            if (std.mem.eql(u8, child.path, path)) {
-                found.* = child;
-                return;
-            }
-            s.findChild(child, path, found);
-        }
-    }
+    /// The folder above the one shown: `shell.goUp` walks the tree.
 
     /// The pictures the gallery shows: the folder's own, filtered by the
     /// search and sorted by the key. Pointers into the folder's list, so
@@ -456,14 +517,23 @@ pub const State = struct {
             s.aspects = s.gpa.alloc(f32, pictures.len) catch &.{};
         }
         if (s.shown_version != s.order_version) s.rebuildOrder();
+        // No room to speak of yet: the window is between sizes, or the
+        // grid's box has not been placed this frame. Laying out into
+        // nothing would leave a wall of placements with nowhere to stand,
+        // so this waits for a width it can use.
+        if (width < 2 * padding + 8) return;
         if (width == s.laid_out_for and s.layout.placements.len == s.shown.len) return;
         s.laid_out_for = width;
 
         for (s.shown, 0..) |pic, i| {
             s.aspects[i] = s.shared.aspectOf(pic.path) orelse 1;
         }
+        // The density sets how wide a column is aiming to be: 128, 256
+        // or 512 points tall, which is the same thing said as a picture
+        // of square proportions.
         const layout = masonry.compute(s.gpa, s.aspects[0..s.shown.len], width, .{
             .columns = max_columns,
+            .target = s.density.row(),
             .gap = gap,
             .padding = padding,
         }) catch return;
@@ -472,10 +542,17 @@ pub const State = struct {
     }
 
     pub fn view(s: *State, c: *ui.Context) void {
+        // What the settings asked for: no fades, no slides. Said before
+        // anything below gets the chance to animate.
+        if (s.reduce_motion) c.reduced_motion = true;
         // Dark or light, wherever the eye is.
-        if (c.shortcut(.{ .key = 'd', .ctrl = true })) {
-            s.toggleDark();
-            s.saveSettings();
+        if (c.shortcut(.{ .key = 'd', .ctrl = true })) s.toggleDark();
+        // "Follow the system" is in no hurry: once a minute is often
+        // enough, and the answer rarely changes under anyone.
+        if (s.appearance == .auto and c.time - s.system_checked >= 60) {
+            s.system_checked = c.time;
+            const lit = nanoui.isDark();
+            if (lit != s.dark) s.setDark(lit);
         }
         // A new root first, if one was picked: the folder it replaced
         // has no business being listed again.
@@ -488,199 +565,31 @@ pub const State = struct {
             s.relist_pending = false;
             s.relist();
         }
+        // The clock the status bar counts from starts here: "3s" means
+        // three seconds since the folder was last listed.
+        if (s.listed_at < 0) s.listed_at = c.time;
+        statusbar.title(s, c);
         if (s.large != null) {
             large.view(s, c);
+            s.toaster.view(c);
             return;
         }
         ui.row(c, .{ .width = .fill, .height = .fill });
-        s.viewTree(c);
+        shell.rail(s, c);
+        ui.column(c, .{ .grow = 1, .width = .fill, .height = .fill });
+        shell.commandBar(s, c);
+        statusbar.progress(s, c);
         gallery.view(s, c);
+        statusbar.view(s, c);
+        ui.end(c);
         ui.end(c);
         // The overlays hang off the window itself: an absolute box inside
         // them positions against the window, not against a column.
         menu.view(s, c);
-        if (s.settings_open) s.viewSettings(c);
+        if (s.settings_open) settings.view(s, c);
+        if (s.folder_broken) s.brokenFolderDialog(c);
+        // And what the operations said, over all of it.
+        s.toaster.view(c);
     }
 
-    /// The folders, down the left.
-    /// The sidebar, the way nanomon draws one: the name on top, the folders
-    /// as rows with their counts, and the watch's status at the bottom.
-    fn viewTree(s: *State, c: *ui.Context) void {
-        const k = theme.colors(s.dark);
-        const tr = i18n.strings(s.lang);
-        const side = ui.div(c).column().w(214).hFull().bg(k.sidebar).px(10).gap(2);
-        defer side.end();
-        {
-            const top = ui.div(c).row().wFull().h(52).itemsCenter().gap(8).px(6);
-            defer top.end();
-            // The mark, the app's own: a photograph on amber. It closes
-            // before the name, which is no child of a twenty-two point
-            // box, however fond of it the mark may be.
-            {
-                const mark = ui.div(c).row().w(22).h(22).center().rounded(6).bg(k.accent);
-                defer mark.end();
-                ui.icon(c, "photo", .{ .size = 12, .color = k.page });
-            }
-            ui.text(c, "NanoFlowVision", .{ .size = 13, .weight = .bold, .color = k.text });
-        }
-        sideSection(c, k, tr.folders);
-        ui.scroll(c, .{ .width = .fill, .height = .fill, .gap = 2 });
-        s.viewFolder(c, k, &s.tree);
-        ui.end(c);
-        // What the gallery takes in, whether the folder is watched, and
-        // the way to another folder altogether.
-        {
-            const row = ui.div(c).row().wFull().itemsCenter().px(8).py(4);
-            defer row.end();
-            if (ui.checkbox(c, tr.subfolders, &s.recursive)) {
-                if (s.current) |folder| folder.loaded = false;
-                s.relist_pending = true;
-            }
-        }
-        {
-            var row = ui.div(c).row().wFull().h(30).itemsCenter().gap(9).px(7).rounded(7).control();
-            defer row.end();
-            row = row.hover(k.hover);
-            if (row.clicked()) s.openFolderDialog();
-            {
-                const chip = ui.div(c).row().w(20).h(20).center().rounded(6).bg(k.accent.alpha(0.16));
-                defer chip.end();
-                ui.icon(c, "folder", .{ .size = 11, .color = k.accent });
-            }
-            ui.text(c, tr.open_folder, .{ .size = 13, .color = k.text });
-        }
-        {
-            const row = ui.div(c).row().wFull().gap(7).itemsCenter().px(8).pb(2);
-            defer row.end();
-            _ = c.leaf(.{ .width = .{ .px = 7 }, .height = .{ .px = 7 }, .radius = 3.5, .background = k.green }, .none, null);
-            ui.text(c, tr.watching, .{ .size = 11, .color = k.secondary });
-        }
-        // The settings, one click away at the sidebar's foot.
-        {
-            var row = ui.div(c).row().wFull().h(30).itemsCenter().gap(9).px(7).rounded(7).control();
-            defer row.end();
-            row = row.hover(k.hover);
-            if (row.clicked()) {
-                s.settings_open = true;
-                c.changed = true;
-            }
-            {
-                const chip = ui.div(c).row().w(20).h(20).center().rounded(6).bg(k.accent.alpha(0.16));
-                defer chip.end();
-                ui.icon(c, "slider.horizontal.3", .{ .size = 11, .color = k.accent });
-            }
-            ui.text(c, tr.settings, .{ .size = 13, .color = k.text });
-        }
-    }
-
-    /// A sidebar section's name.
-    fn sideSection(c: *ui.Context, k: theme.Colors, name: []const u8) void {
-        const d = ui.div(c).row().wFull().px(8).pt(14).pb(4);
-        defer d.end();
-        ui.text(c, name, .{ .size = 11, .weight = .semibold, .color = k.tertiary });
-    }
-
-    fn viewFolder(s: *State, c: *ui.Context, k: theme.Colors, folder: *model.Folder) void {
-        for (folder.children) |*child| {
-            const on = s.current == child;
-            const fg = if (on) k.on_picked else k.text;
-            {
-                var row = ui.div(c).row().wFull().h(30).itemsCenter().gap(9).px(7).rounded(7).control();
-                row = if (on) row.bg(k.picked) else row.hover(k.hover);
-                row = row.pl(7 + @as(f32, @floatFromInt(child.depth)) * 12);
-                defer row.end();
-                // The chevron is sampled first: a click on it folds the folder's
-                // own in and out, and must not also open the folder -- both
-                // boxes sit under the pointer, and both would hear the click.
-                var folded = false;
-                if (child.children.len > 0) {
-                    var chev = ui.div(c).row().w(16).h(24).center().rounded(5).control();
-                    defer chev.end();
-                    ui.icon(c, if (child.expanded) "chevron.down" else "chevron.right", .{ .size = 10, .color = k.tertiary });
-                    if (chev.clicked()) {
-                        child.expanded = !child.expanded;
-                        folded = true;
-                        c.changed = true;
-                    }
-                } else {
-                    _ = c.leaf(.{ .width = .{ .px = 16 }, .height = .{ .px = 24 } }, .none, null);
-                }
-                if (row.clicked() and !folded) {
-                    s.open(child);
-                    // The folders inside it show, now that it is open.
-                    child.expanded = true;
-                    c.changed = true;
-                }
-                {
-                    const chip = ui.div(c).row().w(20).h(20).center().rounded(6).bg(if (on) k.on_picked.alpha(0.22) else k.accent.alpha(0.16));
-                    defer chip.end();
-                    ui.icon(c, "folder", .{ .size = 11, .color = if (on) k.on_picked else k.accent });
-                }
-                ui.text(c, child.name, .{ .size = 13, .weight = if (on) .semibold else .regular, .color = fg });
-                ui.spacer(c);
-                if (child.pictures.len > 0) {
-                    ui.textf(c, .{ .size = 11, .mono = true, .color = if (on) k.on_picked.alpha(0.8) else k.secondary }, "{d}", .{child.pictures.len});
-                }
-            }
-            // The folders inside it, drawn BELOW its row: the row is closed
-            // by now, or its children would flow on beside it, a single
-            // thirty-point line wide, and never be seen.
-            if (child.expanded) s.viewFolder(c, k, child);
-        }
-    }
-    /// The settings, on a card over the page: the language, the look, and
-    /// what the gallery takes in. A change lands in the settings file the
-    /// moment it is made.
-    fn viewSettings(s: *State, c: *ui.Context) void {
-        const k = theme.colors(s.dark);
-        const tr = i18n.strings(s.lang);
-        // The layer covers the window; the sheet under the card takes the
-        // clicks that miss it; the card is a flex child, centered.
-        const layer = ui.div(c).absolute().offset(0, 0).sizeFull();
-        defer layer.end();
-        {
-            const sheet = ui.div(c).absolute().offset(0, 0).sizeFull().control();
-            defer sheet.end();
-            if (sheet.clicked()) {
-                s.settings_open = false;
-                c.changed = true;
-            }
-        }
-        const center = ui.div(c).row().sizeFull().itemsCenter().justifyCenter();
-        defer center.end();
-        const card = ui.div(c).column().w(380).p(16).gap(12).rounded(10).bg(k.card).border(k.border).shadowMd();
-        defer card.end();
-        ui.text(c, tr.settings, .{ .size = 15, .weight = .bold, .color = k.text });
-
-        // The language, each written as its speakers write it.
-        ui.row(c, .{ .width = .{ .px = 348 }, .gap = 10, .align_items = .center });
-        ui.text(c, tr.language, .{ .size = 13, .color = k.text });
-        ui.spacer(c);
-        const lang_names = [_][]const u8{ i18n.ownName(.en), i18n.ownName(.zh) };
-        var li: usize = @backingInt(s.lang);
-        if (ui.segmented(c, &lang_names, &li)) {
-            s.lang = @fromBackingInt(@intCast(li));
-            s.saveSettings();
-            c.changed = true;
-        }
-        ui.end(c);
-
-        if (ui.checkbox(c, tr.dark_mode, &s.dark)) {
-            s.setDark(s.dark);
-            s.saveSettings();
-        }
-        if (ui.checkbox(c, tr.subfolders, &s.recursive)) {
-            if (s.current) |folder| folder.loaded = false;
-            s.relist_pending = true;
-            s.saveSettings();
-        }
-
-        ui.row(c, .{ .width = .{ .px = 348 }, .align_items = .center });
-        ui.spacer(c);
-        if (ui.button(c, tr.close, .{ .size = 13 }).clicked) {
-            s.settings_open = false;
-            c.changed = true;
-        }
-        ui.end(c);
-    }
 };

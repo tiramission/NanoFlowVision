@@ -3,6 +3,9 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    // `-Dtest-filter=words` runs only the tests whose name says them:
+    // one flaky test found, without waiting on the whole wall.
+    const filter = b.option([]const u8, "test-filter", "only run tests whose name contains this") orelse "";
     const nanoui = b.dependency("nanoui", .{ .target = target, .optimize = optimize }).module("nanoui");
     // The pictures: JPEG, PNG, BMP and the rest, in pure Zig.
     const zigimg = b.dependency("zigimg", .{ .target = target, .optimize = optimize }).module("zigimg");
@@ -27,7 +30,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .imports = imports,
-    }) });
+    }), .filters = &.{filter} });
 
     // The system picture decoder, where the platform has one: WIC on
     // Windows, ImageIO on macOS. The pure-Zig way needs neither.

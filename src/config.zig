@@ -5,14 +5,72 @@
 const std = @import("std");
 const i18n = @import("i18n.zig");
 
+/// How the room is lit: with the system, or held at either end.
+pub const Appearance = enum { auto, light, dark };
+
+/// How big the pictures are in the grid -- a target row height, not a
+/// column count, so the grid is the same density whatever the window is.
+/// Three steps only: the thumbnail cache is sized by the side it decodes
+/// at (192 MB), and five steps would cost more hit rate than the extra
+/// choice is worth.
+pub const Density = enum {
+    small,
+    medium,
+    large,
+
+    /// The column width a step aims at: 128, 256 or 512 points.
+    pub fn row(self: Density) f32 {
+        return switch (self) {
+            .small => 128,
+            .medium => 256,
+            .large => 512,
+        };
+    }
+
+    /// The longest side a thumbnail is decoded to for this step.
+    pub fn side(self: Density) u32 {
+        return switch (self) {
+            .small => 128,
+            .medium => 256,
+            .large => 512,
+        };
+    }
+
+    pub fn fromName(name: []const u8) ?Density {
+        if (std.mem.eql(u8, name, "small")) return .small;
+        if (std.mem.eql(u8, name, "medium")) return .medium;
+        if (std.mem.eql(u8, name, "large")) return .large;
+        return null;
+    }
+
+    /// The word the menu shows for it.
+    pub fn label(self: Density, lang: i18n.Lang) []const u8 {
+        const tr = i18n.strings(lang);
+        return switch (self) {
+            .small => tr.density_small,
+            .medium => tr.density_medium,
+            .large => tr.density_large,
+        };
+    }
+};
+
 pub const Settings = struct {
     /// Where the window sat. Null when it was centred by the system.
     x: ?f64 = null,
     y: ?f64 = null,
     width: f64 = 1100,
     height: f64 = 720,
-    /// Whether the gallery is drawn dark.
+    /// Whether the gallery is drawn dark. Kept for files written before
+    /// `appearance` existed; `appearance` says the same thing better.
     dark: bool = false,
+    /// How the room is lit. Follows the system unless said otherwise.
+    appearance: Appearance = .auto,
+    /// How big the pictures are in the grid.
+    density: Density = .medium,
+    /// Whether the interface skips its fades and slides.
+    reduce_motion: bool = false,
+    /// How wide the navigation column is, 200 to 360.
+    rail_w: f32 = 240,
     /// Whether the gallery takes the subfolders' pictures in.
     recursive: bool = false,
     /// The folder the tree was rooted at, opened again next time. Empty
@@ -34,6 +92,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, dir_path: []const u8) Settings {
     defer gpa.free(bytes);
 
     var lines = std.mem.splitScalar(u8, bytes, '\n');
+    var saw_appearance = false;
     while (lines.next()) |line_raw| {
         const line = std.mem.trim(u8, line_raw, " \t\r");
         const eq = std.mem.indexOfScalar(u8, line, '=') orelse continue;
@@ -49,6 +108,20 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, dir_path: []const u8) Settings {
             if (number(value)) |v| out.height = v;
         } else if (std.mem.eql(u8, key, "dark")) {
             out.dark = std.mem.eql(u8, value, "1");
+        } else if (std.mem.eql(u8, key, "appearance")) {
+            out.appearance = if (std.mem.eql(u8, value, "auto"))
+                .auto
+            else if (std.mem.eql(u8, value, "dark"))
+                .dark
+            else
+                .light;
+            saw_appearance = true;
+        } else if (std.mem.eql(u8, key, "density")) {
+            if (Density.fromName(value)) |d| out.density = d;
+        } else if (std.mem.eql(u8, key, "reduce_motion")) {
+            out.reduce_motion = std.mem.eql(u8, value, "1");
+        } else if (std.mem.eql(u8, key, "rail_w")) {
+            if (number(value)) |v| out.rail_w = @floatCast(v);
         } else if (std.mem.eql(u8, key, "recursive")) {
             out.recursive = std.mem.eql(u8, value, "1");
         } else if (std.mem.eql(u8, key, "maximized")) {
@@ -65,6 +138,10 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, dir_path: []const u8) Settings {
     // accident, not a wish: hold both ends.
     out.width = std.math.clamp(out.width, 480, 1920);
     out.height = std.math.clamp(out.height, 320, 1200);
+    out.rail_w = std.math.clamp(out.rail_w, 200, 360);
+    // A file written before appearances were a choice still says which
+    // way it was drawn; take that as the answer until it says more.
+    if (!saw_appearance) out.appearance = if (out.dark) .dark else .light;
     return out;
 }
 
@@ -78,8 +155,8 @@ pub fn save(io: std.Io, dir_path: []const u8, s: Settings) void {
     var buf: [1024]u8 = undefined;
     var w = file.writer(io, &buf);
     w.interface.print(
-        "x = {d}\ny = {d}\nwidth = {d:.0}\nheight = {d:.0}\ndark = {d}\nrecursive = {d}\nmaximized = {d}\nroot = {s}\nlang = {s}\n",
-        .{ s.x orelse -1, s.y orelse -1, s.width, s.height, @intFromBool(s.dark), @intFromBool(s.recursive), @intFromBool(s.maximized), s.root, @tagName(s.lang) },
+        "x = {d}\ny = {d}\nwidth = {d:.0}\nheight = {d:.0}\nappearance = {s}\ndensity = {s}\nreduce_motion = {d}\nrail_w = {d:.0}\nrecursive = {d}\nmaximized = {d}\nroot = {s}\nlang = {s}\n",
+        .{ s.x orelse -1, s.y orelse -1, s.width, s.height, @tagName(s.appearance), @tagName(s.density), @intFromBool(s.reduce_motion), s.rail_w, @intFromBool(s.recursive), @intFromBool(s.maximized), s.root, @tagName(s.lang) },
     ) catch return;
     w.interface.flush() catch return;
 }
@@ -111,14 +188,46 @@ test "settings round-trip" {
     const dir_path = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/tmp/{s}", .{ cwd, tmp.sub_path });
     defer gpa.free(dir_path);
 
-    const s: Settings = .{ .x = 12.5, .y = -3, .width = 900, .height = 600, .dark = true, .recursive = true };
+    const s: Settings = .{
+        .x = 12.5,
+        .y = -3,
+        .width = 900,
+        .height = 600,
+        .appearance = .dark,
+        .density = .large,
+        .reduce_motion = true,
+        .rail_w = 300,
+        .recursive = true,
+    };
     save(std.testing.io, dir_path, s);
     const back = load(gpa, std.testing.io, dir_path);
     try std.testing.expectEqual(@as(f64, 12.5), back.x.?);
     try std.testing.expectEqual(@as(f64, -3), back.y.?);
     try std.testing.expectEqual(@as(f64, 900), back.width);
     try std.testing.expectEqual(@as(f64, 600), back.height);
-    try std.testing.expect(back.dark and back.recursive);
+    try std.testing.expect(back.recursive);
+    // The look, the density, the motion and the rail all come back.
+    try std.testing.expectEqual(Appearance.dark, back.appearance);
+    try std.testing.expectEqual(Density.large, back.density);
+    try std.testing.expect(back.reduce_motion);
+    try std.testing.expectEqual(@as(f32, 300), back.rail_w);
+
+    // A file from before those keys: its own `dark` line still says which
+    // way the room was lit.
+    const old = try std.fmt.allocPrint(gpa, "{s}/settings.txt", .{dir_path});
+    defer gpa.free(old);
+    {
+        var f = try std.Io.Dir.createFileAbsolute(std.testing.io, old, .{ .truncate = true });
+        defer f.close(std.testing.io);
+        var buf: [128]u8 = undefined;
+        var w = f.writer(std.testing.io, &buf);
+        try w.interface.writeAll("dark = 1\nrecursive = 1\n");
+        try w.interface.flush();
+    }
+    const from_before = load(gpa, std.testing.io, dir_path);
+    try std.testing.expectEqual(Appearance.dark, from_before.appearance);
+    try std.testing.expectEqual(Density.medium, from_before.density);
+    try std.testing.expectEqual(@as(f32, 240), from_before.rail_w);
 
     // Nothing to read: the defaults.
     const fresh = load(gpa, std.testing.io, "C:/definitely/not/here");
@@ -134,6 +243,16 @@ test "settings round-trip" {
     const held = load(gpa, std.testing.io, dir_path);
     try std.testing.expectEqual(@as(f64, 1920), held.width);
     try std.testing.expectEqual(@as(f64, 320), held.height);
+
+    // A rail dragged past either end is held to what the design allows.
+    var wide: Settings = .{};
+    wide.rail_w = 900;
+    save(std.testing.io, dir_path, wide);
+    try std.testing.expectEqual(@as(f32, 360), load(gpa, std.testing.io, dir_path).rail_w);
+    var thin: Settings = .{};
+    thin.rail_w = 20;
+    save(std.testing.io, dir_path, thin);
+    try std.testing.expectEqual(@as(f32, 200), load(gpa, std.testing.io, dir_path).rail_w);
 
     // A maximized window is remembered as such, and nothing else of its
     // frame is worth keeping.

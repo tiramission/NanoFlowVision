@@ -22,11 +22,31 @@ pub fn paste(s: *app.State) void {
         s.gpa.free(files);
     }
     const dir = s.current orelse return;
+    const tr = i18n.strings(s.lang);
+    var landed: usize = 0;
+    var missed: usize = 0;
     for (files) |f| {
-        const dest = ops.pasteInto(s.gpa, s.io, f, dir.path) catch continue;
-        if (dest) |d| s.gpa.free(d);
+        const dest = ops.pasteInto(s.gpa, s.io, f, dir.path) catch {
+            missed += 1;
+            continue;
+        };
+        if (dest) |d| {
+            s.gpa.free(d);
+            landed += 1;
+        } else missed += 1;
     }
     s.relist_pending = true;
+    // What happened, said back: a paste that half worked says so rather
+    // than leaving the reader counting files.
+    if (missed > 0 and landed == 0) {
+        s.toast(.danger, tr.paste_failed);
+    } else if (missed > 0) {
+        s.toast(.warning, tr.paste_failed);
+    } else if (landed > 0) {
+        const title = i18n.pasted(s.gpa, s.lang, landed);
+        s.toast(.success, title);
+        s.gpa.free(title);
+    }
 }
 
 const Action = enum { open_large, open_system, reveal, copy, rename, trash };
@@ -93,17 +113,24 @@ fn item(s: *app.State, c: *ui.Context, th: anytype, mp: *model.Picture, label: [
     ui.text(c, label, .{ .size = 13 });
     if (it.clicked) {
         s.menu_for = null;
+        const tr = i18n.strings(s.lang);
         switch (action) {
             .open_large => large.show(s, mp),
             .open_system => _ = ops.open(mp.path),
             .reveal => ops.reveal(mp.path),
-            .copy => ops.copyFileToClipboard(s.gpa, mp.path),
+            .copy => {
+                ops.copyFileToClipboard(s.gpa, mp.path);
+                s.toast(.success, tr.copied);
+            },
             .rename => {
                 s.renaming = mp;
                 s.rename_field.set(mp.name);
             },
             .trash => {
-                if (ops.trash(mp.path)) s.relist_pending = true;
+                if (ops.trash(mp.path)) {
+                    s.relist_pending = true;
+                    s.toast(.success, tr.trashed);
+                } else s.toast(.danger, tr.trash_failed);
             },
         }
     }
@@ -151,7 +178,13 @@ fn commit(s: *app.State, rp: *model.Picture) void {
     defer s.rename_field.clear();
     s.renaming = null;
     if (new_name.len == 0 or std.mem.eql(u8, new_name, rp.name)) return;
-    const new_path = ops.renameFile(s.gpa, s.io, rp.path, new_name) catch return;
+    const tr = i18n.strings(s.lang);
+    const new_path = ops.renameFile(s.gpa, s.io, rp.path, new_name) catch |err| {
+        // A name another file has, said so; the file keeps the name it
+        // had, and the box it came from is already gone.
+        if (err == error.NameExists) s.toast(.danger, tr.rename_taken);
+        return;
+    };
     // The cache moves the picture's entries to the new path, so nothing
     // decodes again.
     s.shared.renameKey(s.gpa, rp.path, new_path);

@@ -26,6 +26,9 @@ pub const Strings = struct {
     no_pictures: []const u8,
     /// "No matches for \"{s}\"".
     no_matches: []const u8,
+    clear_search: []const u8,
+    folder_unreadable: []const u8,
+    choose_other_folder: []const u8,
     subfolders: []const u8,
     watching: []const u8,
     folders: []const u8,
@@ -44,10 +47,37 @@ pub const Strings = struct {
     open_folder: []const u8,
     fit_label: []const u8,
     language: []const u8,
-    dark_mode: []const u8,
     lang_english: []const u8,
     lang_chinese: []const u8,
-    close: []const u8,
+    /// The command bar's menus.
+    sort_by: []const u8,
+    sort_ascending: []const u8,
+    sort_descending: []const u8,
+    density: []const u8,
+    density_small: []const u8,
+    density_medium: []const u8,
+    density_large: []const u8,
+    /// "Grid density: Medium".
+    density_set: []const u8,
+    /// The settings sheet.
+    appearance: []const u8,
+    appearance_auto: []const u8,
+    appearance_light: []const u8,
+    appearance_dark: []const u8,
+    reduce_motion: []const u8,
+    rail_width: []const u8,
+    rail_reset: []const u8,
+    /// What the operations said back, as toasts.
+    trashed: []const u8,
+    trash_failed: []const u8,
+    pasted: []const u8,
+    paste_failed: []const u8,
+    copied: []const u8,
+    rename_taken: []const u8,
+    rate_failed: []const u8,
+    /// The status bar, and the tile that cannot be read.
+    measuring_progress: []const u8,
+    decode_failed: []const u8,
 };
 
 const en: Strings = .{
@@ -63,12 +93,15 @@ const en: Strings = .{
     .measuring = "measuring {d} of {d}…",
     .no_pictures = "No pictures here",
     .no_matches = "No matches for \"{s}\"",
+    .clear_search = "Clear search",
+    .folder_unreadable = "Can't open this folder",
+    .choose_other_folder = "Open another folder",
     .subfolders = "Subfolders",
     .watching = "Watching",
     .folders = "Folders",
     .open_large = "Open large",
     .open_system = "Open in system",
-    .reveal = "Reveal in Explorer",
+    .reveal = "Reveal in File Manager",
     .copy = "Copy",
     .rename_menu = "Rename…",
     .to_bin = "Move to Recycle Bin",
@@ -81,10 +114,32 @@ const en: Strings = .{
     .open_folder = "Open folder",
     .fit_label = "Fit",
     .language = "Language",
-    .dark_mode = "Dark mode",
     .lang_english = "English",
     .lang_chinese = "中文",
-    .close = "Close",
+    .sort_by = "Sort by",
+    .sort_ascending = "Ascending",
+    .sort_descending = "Descending",
+    .density = "Grid density",
+    .density_small = "Small",
+    .density_medium = "Medium",
+    .density_large = "Large",
+    .density_set = "Grid density: {s}",
+    .appearance = "Appearance",
+    .appearance_auto = "System",
+    .appearance_light = "Light",
+    .appearance_dark = "Dark",
+    .reduce_motion = "Reduce motion",
+    .rail_width = "Sidebar width",
+    .rail_reset = "Reset width",
+    .trashed = "Moved to Recycle Bin",
+    .trash_failed = "Couldn't move it to the bin",
+    .pasted = "Pasted {d} files",
+    .paste_failed = "Some files couldn't be pasted",
+    .copied = "Copied to clipboard",
+    .rename_taken = "That name is taken",
+    .rate_failed = "Rating wasn't written to the file",
+    .measuring_progress = "Measuring {d}%",
+    .decode_failed = "Can't read",
 };
 
 const zh: Strings = .{
@@ -100,12 +155,15 @@ const zh: Strings = .{
     .measuring = "正在测量 {d} / {d}…",
     .no_pictures = "这里没有图片",
     .no_matches = "没有匹配“{s}”的结果",
+    .clear_search = "清除搜索",
+    .folder_unreadable = "无法打开这个文件夹",
+    .choose_other_folder = "打开其他目录",
     .subfolders = "包含子文件夹",
     .watching = "正在监视",
     .folders = "文件夹",
     .open_large = "打开大图",
     .open_system = "用系统打开",
-    .reveal = "在资源管理器中显示",
+    .reveal = "在文件夹中显示",
     .copy = "复制",
     .rename_menu = "重命名…",
     .to_bin = "移到回收站",
@@ -118,10 +176,32 @@ const zh: Strings = .{
     .open_folder = "打开目录",
     .fit_label = "适应窗口",
     .language = "语言",
-    .dark_mode = "深色模式",
     .lang_english = "English",
     .lang_chinese = "中文",
-    .close = "关闭",
+    .sort_by = "排序",
+    .sort_ascending = "升序",
+    .sort_descending = "降序",
+    .density = "网格密度",
+    .density_small = "小",
+    .density_medium = "中",
+    .density_large = "大",
+    .density_set = "网格密度：{s}",
+    .appearance = "外观",
+    .appearance_auto = "跟随系统",
+    .appearance_light = "亮",
+    .appearance_dark = "暗",
+    .reduce_motion = "减少动效",
+    .rail_width = "导航栏宽度",
+    .rail_reset = "复位宽度",
+    .trashed = "已移到回收站",
+    .trash_failed = "无法移到回收站",
+    .pasted = "已粘贴 {d} 个文件",
+    .paste_failed = "有文件没能粘贴",
+    .copied = "已复制到剪贴板",
+    .rename_taken = "这个名字已经存在",
+    .rate_failed = "评分未写入文件",
+    .measuring_progress = "正在测量 {d}%",
+    .decode_failed = "无法读取",
 };
 
 /// The strings for `lang`.
@@ -172,6 +252,30 @@ pub fn measuring(alloc: std.mem.Allocator, lang: Lang, done: usize, total: usize
     };
 }
 
+/// "Grid density: Medium", said when the density changes.
+pub fn densitySet(alloc: std.mem.Allocator, lang: Lang, label: []const u8) []const u8 {
+    return switch (lang) {
+        .en => std.fmt.allocPrint(alloc, en.density_set, .{label}) catch "…",
+        .zh => std.fmt.allocPrint(alloc, zh.density_set, .{label}) catch "…",
+    };
+}
+
+/// "Pasted {d} files".
+pub fn pasted(alloc: std.mem.Allocator, lang: Lang, n: usize) []const u8 {
+    return switch (lang) {
+        .en => std.fmt.allocPrint(alloc, en.pasted, .{n}) catch "…",
+        .zh => std.fmt.allocPrint(alloc, zh.pasted, .{n}) catch "…",
+    };
+}
+
+/// "Measuring {d}%", the status bar's line while the sizes arrive.
+pub fn measuringProgress(alloc: std.mem.Allocator, lang: Lang, percent: usize) []const u8 {
+    return switch (lang) {
+        .en => std.fmt.allocPrint(alloc, en.measuring_progress, .{percent}) catch "…",
+        .zh => std.fmt.allocPrint(alloc, zh.measuring_progress, .{percent}) catch "…",
+    };
+}
+
 /// "No matches for query".
 pub fn noMatches(alloc: std.mem.Allocator, lang: Lang, query: []const u8) []const u8 {
     return switch (lang) {
@@ -190,6 +294,8 @@ test "both languages carry every string, non-empty" {
             s.sort_stars,   s.pictures,
             s.pictures_of,  s.measuring,
             s.no_pictures,  s.no_matches,
+            s.clear_search, s.folder_unreadable,
+            s.choose_other_folder,
             s.subfolders,   s.watching,
             s.folders,      s.open_large,
             s.open_system,  s.reveal,
@@ -198,8 +304,19 @@ test "both languages carry every string, non-empty" {
             s.cancel,       s.add_tag,
             s.keys_hint,    s.loading,
             s.settings,     s.language,
-            s.dark_mode,    s.lang_english,
-            s.lang_chinese, s.close,
+            s.lang_english, s.lang_chinese,
+            s.sort_by,      s.sort_ascending,
+            s.sort_descending, s.density,
+            s.density_small, s.density_medium,
+            s.density_large, s.density_set,
+            s.appearance,   s.appearance_auto,
+            s.appearance_light, s.appearance_dark,
+            s.reduce_motion, s.rail_width,
+            s.rail_reset,   s.trashed,
+            s.trash_failed, s.pasted,
+            s.paste_failed, s.copied,
+            s.rename_taken, s.rate_failed,
+            s.measuring_progress, s.decode_failed,
         };
         for (all) |v| try std.testing.expect(v.len > 0);
     }

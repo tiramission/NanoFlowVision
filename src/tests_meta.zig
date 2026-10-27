@@ -50,17 +50,24 @@ test "stars go into the picture file, and the gallery sorts by them" {
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
 
-    // By stars: the most first.
+    // By stars: the most first. The sort is a menu now -- the button's
+    // place is written out each frame, so the test clicks where it is.
+    t.frame();
+    const sort_btn = state.sort_at;
+    try std.testing.expect(sort_btn.w > 0);
+    t.click(sort_btn.x + sort_btn.w / 2, sort_btn.y + sort_btn.h / 2);
+    t.settle(0.3);
     try t.clickText("Stars");
-    t.settle(0.2);
+    t.settle(0.3);
     try std.testing.expectEqualStrings("c.jpg", state.shown[0].name);
     try std.testing.expectEqualStrings("a.jpg", state.shown[2].name);
 
-    // The other way: the least first. The direction is its own icon now,
-    // in the ghost button just right of the sort's segmented control.
-    const stars = t.findText("Stars") orelse return error.TextNotFound;
-    t.click(stars.x + stars.w + 38, stars.y + stars.h / 2);
-    t.settle(0.2);
+    // The other way: the least first, through the same menu, which now
+    // says which way it goes and ticks the choice it is on.
+    t.click(sort_btn.x + sort_btn.w / 2, sort_btn.y + sort_btn.h / 2);
+    t.settle(0.3);
+    try t.clickText("Ascending");
+    t.settle(0.3);
     try std.testing.expectEqualStrings("a.jpg", state.shown[0].name);
     try std.testing.expectEqualStrings("c.jpg", state.shown[2].name);
 }
@@ -213,20 +220,27 @@ test "the settings panel switches the language, and it persists" {
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
 
-    // The sidebar's foot has the settings; open it.
+    // The sidebar's foot has the settings; open it. The panel slides in,
+    // so the test waits for it to arrive before touching anything in it.
     try t.clickText("Settings");
-    t.settle(0.1);
+    t.settle(0.6);
     try std.testing.expect(state.settings_open);
 
     // The language, to Chinese: the sort speaks Chinese right away.
-    try t.clickText("中文");
-    t.settle(0.1);
+    const zh = t.findText("中文") orelse return error.TextNotFound;
+    t.click(zh.x + zh.w / 2, zh.y + zh.h / 2);
+    t.settle(0.6);
     try std.testing.expectEqual(i18n.Lang.zh, state.lang);
-    try t.clickText("关闭");
-    t.settle(0.1);
+    // Escape takes the panel away, scrim and all.
+    _ = t.shortcut(.{ .key = ui.Shortcut.escape });
+    t.settle(0.6);
     try std.testing.expect(!state.settings_open);
-    try std.testing.expect(t.hasText("名称"));
-    try std.testing.expect(t.hasText("上级"));
+    // The words around the grid are Chinese now: the rail, and the
+    // count along the bottom (the sort lives in a menu, so its labels
+    // are only there while it is open).
+    try std.testing.expect(t.hasText("文件夹"));
+    try std.testing.expect(t.hasText("打开目录"));
+    try std.testing.expect(t.containsText("张图片"));
 
     // And the file on disk says so. The root it carries is the load's
     // own memory, and goes back when the test is done with it.
