@@ -476,3 +476,74 @@ test "scrolling moves the gallery, and the layout stays where it was" {
     try std.testing.expect(state.built > 0);
     try std.testing.expect(ready);
 }
+
+// T24: the names the views draw are names the icon set has. nanoui does
+// not export its icon table yet (02 §11's gap #1), so the set stands
+// here, copied from the pinned nanoui's icons.zig -- a test fails the
+// day a view asks for a glyph the set cannot draw, or the day the
+// dependency moves under us.
+const icons_used = [_][]const u8{
+    "arrow.right.square",     "chevron.down",
+    "chevron.right",          "chevron.up",
+    "chevron.up.chevron.down", "circle.dotted",
+    "doc.on.doc",             "exclamationmark.triangle",
+    "folder",                 "info.circle",
+    "magnifyingglass",        "pencil",
+    "photo",                  "slider.horizontal.3",
+    "square.grid.2x2",        "star.fill",
+    "trash",
+};
+const icons_set = [_][]const u8{
+    "arrow.clockwise",                    "arrow.right",
+    "arrow.right.square",                 "arrow.triangle.branch",
+    "arrow.up",                           "arrow.up.left.and.arrow.down.right",
+    "brain",                              "chart.bar.xaxis",
+    "checklist",                          "checkmark",
+    "checkmark.circle.fill",              "chevron.down",
+    "chevron.left.forwardslash.chevron.right", "chevron.right",
+    "chevron.up",                         "chevron.up.chevron.down",
+    "circle",                             "circle.dotted",
+    "circle.lefthalf.filled",             "clear",
+    "code",                               "command",
+    "cpu",                                "cube",
+    "desktopcomputer",                    "doc",
+    "doc.on.doc",                         "doc.richtext",
+    "doc.text",                           "ellipsis.circle",
+    "equal.square",                       "exclamationmark.triangle",
+    "flame",                              "folder",
+    "gauge.with.dots.needle.33percent",   "globe",
+    "hand.raised",                        "info.circle",
+    "internaldrive",                      "list.bullet",
+    "magnifyingglass",                    "memorychip",
+    "moon",                               "network",
+    "paperclip",                          "pause.fill",
+    "pencil",                             "person.fill",
+    "photo",                              "play.fill",
+    "plus",                               "plus.square",
+    "questionmark.circle",                "rectangle.on.rectangle",
+    "rectangle.split.1x2",                "rectangle.split.2x1",
+    "sidebar.left",                       "slider.horizontal.3",
+    "sparkles",                           "square.and.pencil",
+    "square.grid.2x2",                    "square.grid.3x3",
+    "star.fill",                          "stop.circle",
+    "sun.max",                            "terminal",
+    "terminal.fill",                      "text.cursor",
+    "textformat",                         "trash",
+    "wand.and.stars",                     "waveform.path.ecg",
+    "wrench.and.screwdriver",             "xmark",
+    "xmark.octagon",                      "xmark.square",
+};
+
+test "every icon the views draw is one the icon set has" {
+    for (icons_used) |name| {
+        var known = false;
+        for (icons_set) |have| {
+            if (std.mem.eql(u8, name, have)) {
+                known = true;
+                break;
+            }
+        }
+        if (!known) std.debug.print("icon not in the set: {s}", .{name});
+        try std.testing.expect(known);
+    }
+}

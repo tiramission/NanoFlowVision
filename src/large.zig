@@ -446,7 +446,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             {
                 const head = ui.div(c).row().wFull().itemsCenter().gap(6).control();
                 defer head.end();
-                ui.icon(c, "info", .{ .size = 12, .color = .white });
+                ui.icon(c, "info.circle", .{ .size = 12, .color = .white });
                 ui.text(c, tr.info, .{ .size = 12, .weight = .semibold, .color = .white });
                 ui.spacer(c);
                 ui.icon(c, "chevron.up", .{ .size = 11, .color = ui.Color.white.alpha(0.6) });
@@ -498,7 +498,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
                 .row().itemsCenter().gap(6).px(10).py(6).rounded(8)
                 .bg(ui.Color.black.alpha(0.45)).control();
             defer mark.end();
-            ui.icon(c, "info", .{ .size = 12, .color = .white });
+            ui.icon(c, "info.circle", .{ .size = 12, .color = .white });
             ui.text(c, tr.info, .{ .size = 12, .color = .white });
             if (mark.clicked()) s.info_open = true;
         }
