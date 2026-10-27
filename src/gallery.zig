@@ -526,15 +526,18 @@ fn viewPicture(s: *app.State, c: *ui.Context, pic: *model.Picture, place: masonr
         _ = c.leaf(.{ .width = .fill, .height = .fill, .background = k.page.alpha(0.55) }, .none, null);
     }
     // The choice's own ring, round the tile: the one saturated mark the
-    // wall makes, in the theme's inverted accent.
+    // wall makes, in the theme's inverted accent. Drawn over the
+    // photograph -- a border under it would never be seen.
     if (chosen) {
+        const ring = ui.div(c).absolute().offset(0, 0).w(place.w).h(place.h).rounded(4);
+        defer ring.end();
         const n = c.node(c.stack.items[c.stack.items.len - 1]);
         n.style.border = k.accent;
     }
     // The keyboard's place, a hairline in from the tile's edge: a mark
     // of its own, so the cursor and the choice can stand on one tile
     // and still be told apart.
-    if (is_cursor and !chosen) {
+    if (is_cursor) {
         const inner = ui.div(c).absolute().offset(3, 3).w(place.w - 6).h(place.h - 6);
         defer inner.end();
         const n = c.node(c.stack.items[c.stack.items.len - 1]);

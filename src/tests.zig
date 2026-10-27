@@ -9,6 +9,7 @@ comptime {
     _ = @import("tests_view.zig");
     _ = @import("select.zig");
     _ = @import("tests_select.zig");
+    _ = @import("tests_shots.zig");
 }
 const decode = @import("decode.zig");
 const thumbs = @import("thumbs.zig");

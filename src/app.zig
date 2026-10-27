@@ -52,36 +52,34 @@ pub const State = struct {
     /// The tree's keyboard row, when the tree has the focus (Tab hands
     /// it over and back). Null is the grid's.
     tree_focus: ?*model.Folder = null,
+    /// Whether the navigation column stands (⌘B folds it away).
+    rail_visible: bool = true,
     /// The folder the gallery shows.
     current: ?*model.Folder = null,
     /// Where the pictures sit.
     layout: masonry.Layout = .{},
-    /// The pictures' sizes.
     aspects: []f32 = &.{},
     /// The width the layout was last made for.
     laid_out_for: f32 = 0,
     /// The picture shown large, if any.
     large: ?*model.Picture = null,
-    /// The cache key of the picture shown large.
     large_key: ?[]u8 = null,
-    /// The paths whose thumbnails are wanted, so the cache keeps them.
+    /// The thumbnails the cache should keep.
     keep: std.ArrayList([]const u8) = .empty,
-    /// Where the first picture on screen was drawn: a test clicks it.
+    /// Where the first picture on screen was drawn.
     first_picture: ?ui.Rect = null,
-    /// The offset the gallery was last scrolled to, to know which way it goes.
+    /// Where the gallery was last scrolled to.
     last_offset: f32 = 0,
     /// How many pictures were built in the last frame.
     built: usize = 0,
     /// Whether the gallery must go back to the top.
     scroll_to_top: bool = false,
-    /// What the gallery sorts by, and which way it goes. A name goes A to Z
-    /// first; the rest go newest and largest first.
+    /// What the gallery sorts by, and which way it goes.
     sort: SortKey = .name,
     sort_ascending: bool = true,
-    /// The words in the search box.
     search: ui.TextBuffer = .{},
-    /// The pictures the gallery shows: the folder's own, filtered by the
-    /// search and sorted. Pointers into the folder, so nothing is copied.
+    /// What the gallery shows: filtered by the search, sorted. Pointers
+    /// into the folder, nothing copied.
     shown: []*model.Picture = &.{},
     /// The tag being typed for the picture shown large.
     tag_field: ui.TextBuffer = .{},
@@ -93,15 +91,12 @@ pub const State = struct {
     /// The menu of one picture, and the corner it opens from.
     menu_for: ?*model.Picture = null,
     menu_at: ui.Rect = .{},
-    /// The rename box, for the picture being renamed.
+    /// The rename box, for the picture being renamed; the flag is the
+    /// kit dialog's own, outliving `renaming` by its exit frames.
     renaming: ?*model.Picture = null,
     rename_field: ui.TextBuffer = .{},
-    /// The box is up: it outlives `renaming` by the frames its exit
-    /// animation plays, and it is the flag the kit's dialog closes.
     rename_open: bool = false,
-    /// Whether the gallery lists the folders inside as well.
     recursive: bool = false,
-    /// Whether the gallery is drawn dark.
     dark: bool = false,
     /// The folder being watched for changes.
     watcher: watch.Watcher = undefined,
@@ -122,7 +117,7 @@ pub const State = struct {
     lang: i18n.Lang = .en,
     settings_open: bool = false,
     /// How the room is lit, how big the pictures are, and whether the
-    /// interface skips its fades: the settings sheet's three choices.
+    /// interface skips its fades.
     appearance: config.Appearance = .auto,
     density: config.Density = .medium,
     reduce_motion: bool = false,
@@ -153,13 +148,12 @@ pub const State = struct {
     history: std.ArrayList([]u8) = .empty,
     history_at: usize = 0,
     keys_open: bool = false,
-    /// The history is walking itself: an open() from the back and
-    /// forward keys does not join the list it is reading.
+    /// The history is walking itself: an open() from those keys does
+    /// not join the list it is reading.
     nav_lock: bool = false,
     /// What the operations said back, drawn last in the frame.
     toaster: kit.Toaster,
-    /// The pictures the reader has chosen, keyed by their paths: a click
-    /// picks, the keyboard walks, the bulk acts on all of them.
+    /// The reader's chosen pictures, keyed by their paths.
     select: select.Select = undefined,
     /// The pictures waiting for the bin's second word: pointers into
     /// the folder's list, which cannot change while the dialog stands.
@@ -171,8 +165,7 @@ pub const State = struct {
     /// null is the plain name. Only the changes reach the window.
     title_percent: ?usize = null,
     /// The large view's zoom target (points per picture pixel; null
-    /// fits), and where its picture is headed: the frame's own easing
-    /// carries what is drawn there by the clock.
+    /// fits), and where its picture is headed.
     zoom: ?f32 = null,
     zoom_target: ?f32 = null,
     /// Whether the large view's panel of facts is open.
@@ -184,8 +177,7 @@ pub const State = struct {
     panning: bool = false,
     last_mouse_x: f32 = 0,
     last_mouse_y: f32 = 0,
-    /// Where the grid sits in the window, and how far it is scrolled:
-    /// the menu opens at a picture's corner.
+    /// Where the grid sits, and how far it is scrolled.
     grid_x: f32 = 0,
     grid_y: f32 = 0,
     grid_offset: f32 = 0,
@@ -529,10 +521,22 @@ pub const State = struct {
         if (s.reduce_motion) c.reduced_motion = true;
         // Dark or light, wherever the eye is.
         if (c.shortcut(.{ .key = 'd', .ctrl = true })) s.toggleDark();
-        // The way back and forward along the folders just left, and the
-        // keyboard's own map, one keypress away.
+        // The navigation column, folded away and back.
+        if (c.shortcut(.{ .key = 'b', .ctrl = true })) {
+            s.rail_visible = !s.rail_visible;
+            c.changed = true;
+        }
+        // The way back and forward along the folders just left, the
+        // keyboard's own map, the settings, the folder above, and the
+        // rescan -- the map's global line, one keypress each.
         if (c.shortcut(.{ .key = ui.Shortcut.left, .alt = true })) shell.historyStep(s, -1);
         if (c.shortcut(.{ .key = ui.Shortcut.right, .alt = true })) shell.historyStep(s, 1);
+        if (c.shortcut(.{ .key = ',', .ctrl = true })) {
+            s.settings_open = true;
+            c.changed = true;
+        }
+        if (c.shortcut(.{ .key = ui.Shortcut.up, .ctrl = true })) shell.goUp(s);
+        if (c.input.key == .f5) s.relist_pending = true;
         if (c.shortcut(.{ .key = '/', .ctrl = true })) {
             s.keys_open = true;
             c.changed = true;
@@ -560,8 +564,6 @@ pub const State = struct {
             const lit = nanoui.isDark();
             if (lit != s.dark) s.setDark(lit);
         }
-        // A new root first, if one was picked: the folder it replaced
-        // has no business being listed again.
         if (s.reroot_pending) |path| {
             s.reroot_pending = null;
             shell.reroot(s, path);
@@ -571,8 +573,6 @@ pub const State = struct {
             s.relist_pending = false;
             s.relist();
         }
-        // The clock the status bar counts from starts here: "3s" means
-        // three seconds since the folder was last listed.
         if (s.listed_at < 0) s.listed_at = c.time;
         statusbar.title(s, c);
         if (s.large != null) {
@@ -581,7 +581,7 @@ pub const State = struct {
             return;
         }
         ui.row(c, .{ .width = .fill, .height = .fill });
-        shell.rail(s, c);
+        if (s.rail_visible) shell.rail(s, c);
         ui.column(c, .{ .grow = 1, .width = .fill, .height = .fill });
         shell.commandBar(s, c);
         statusbar.progress(s, c);

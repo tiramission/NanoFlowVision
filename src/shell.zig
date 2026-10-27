@@ -464,7 +464,7 @@ fn crumbs(s: *app.State, c: *ui.Context) void {
 
     const room = ui.div(c).row().grow().minW(120).itemsCenter().gap(6).clip();
     defer room.end();
-    const only_here = c.size.w < crumbs_narrow;
+    const only_here = c.size.w <= crumbs_narrow;
     var drawn: usize = 0;
     var i: usize = names.items.len;
     while (i > 0) {
