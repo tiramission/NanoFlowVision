@@ -49,6 +49,9 @@ pub const State = struct {
 
     /// The folders of the tree.
     tree: model.Folder,
+    /// The tree's keyboard row, when the tree has the focus (Tab hands
+    /// it over and back). Null is the grid's.
+    tree_focus: ?*model.Folder = null,
     /// The folder the gallery shows.
     current: ?*model.Folder = null,
     /// Where the pictures sit.
@@ -451,8 +454,6 @@ pub const State = struct {
         config.save(s.io, dir, st);
     }
 
-    /// The folder above the one shown: `shell.goUp` walks the tree.
-
     /// The pictures the gallery shows: the folder's own, filtered by the
     /// search and sorted by the key. Pointers into the folder's list, so
     /// the pictures and their paths are neither copied nor changed.
@@ -594,7 +595,6 @@ pub const State = struct {
         if (s.settings_open) settings.view(s, c);
         if (s.folder_broken) dialogs.brokenFolder(s, c);
         if (s.confirming_trash.items.len > 0) dialogs.trashConfirm(s, c);
-        // And what the operations said, over all of it.
         s.toaster.view(c);
     }
 };

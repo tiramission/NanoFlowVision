@@ -101,6 +101,9 @@ test "the tree unfolds at a folder's chevron, without opening it" {
     const png = try ui.png.encode(gpa, .{ .bytes = red[0..], .width = 1, .height = 1 });
     defer gpa.free(png);
     try sample.tmp.dir.writeFile(std.testing.io, .{ .sub_path = "album/two.png", .data = png });
+    // The folder the walk opens holds a picture of its own, so the grid
+    // it lands on has something to walk.
+    try sample.tmp.dir.writeFile(std.testing.io, .{ .sub_path = "album/2024/one.png", .data = png });
 
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
@@ -249,6 +252,56 @@ test "the large view's panel folds to a line, and the zoom speaks" {
     t.settle(0.2);
     try std.testing.expect(state.zoom_target == null);
     try std.testing.expect(t.hasText("Fit"));
+}
+
+test "the tree takes the keyboard, and gives it back" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSample(gpa);
+    defer sample.deinit(gpa);
+    try sample.tmp.dir.createDirPath(std.testing.io, "album/2024");
+    var red = [_]u8{ 0, 0, 255, 255 };
+    const png = try ui.png.encode(gpa, .{ .bytes = red[0..], .width = 1, .height = 1 });
+    defer gpa.free(png);
+    try sample.tmp.dir.writeFile(std.testing.io, .{ .sub_path = "album/two.png", .data = png });
+    // The folder the walk opens holds a picture of its own, so the grid
+    // it lands on has something to walk.
+    try sample.tmp.dir.writeFile(std.testing.io, .{ .sub_path = "album/2024/one.png", .data = png });
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 900 });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+
+    // Tab: the tree has the keyboard, on its first row.
+    t.key(.tab);
+    t.settle(0.1);
+    try std.testing.expect(state.tree_focus != null);
+    try std.testing.expectEqualStrings("album", state.tree_focus.?.name);
+
+    // Down walks the visible rows; right opens and goes in; Enter
+    // opens what the highlight stands on.
+    t.key(.right);
+    t.settle(0.1);
+    try std.testing.expect(state.tree.children[0].expanded);
+    try std.testing.expectEqualStrings("album", state.tree_focus.?.name);
+    // The second right goes in: the folder is open now.
+    t.key(.right);
+    t.settle(0.1);
+    try std.testing.expectEqualStrings("2024", state.tree_focus.?.name);
+    t.key(.enter);
+    t.settle(0.2);
+    try std.testing.expectEqualStrings("2024", state.current.?.name);
+
+    // Tab again: the keyboard is the grid's, and the arrows walk it.
+    t.key(.tab);
+    t.settle(0.1);
+    try std.testing.expect(state.tree_focus == null);
+    const before = state.select.cursor;
+    t.key(.down);
+    t.settle(0.2);
+    try std.testing.expect(state.select.cursor != before);
 }
 
 test "another folder can become the root" {

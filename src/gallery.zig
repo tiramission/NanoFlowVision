@@ -44,7 +44,9 @@ fn viewGrid(s: *app.State, c: *ui.Context) void {
     // The menu and the rename box are the kit's own overlays now: they
     // take their own escape, and a click that misses them. The grid's
     // keys belong to the gallery only when none of that is up.
-    if (s.menu_for == null and !s.rename_open and s.confirming_trash.items.len == 0) {
+    if (s.menu_for == null and !s.rename_open and s.confirming_trash.items.len == 0 and
+        s.tree_focus == null)
+    {
         gridKeys(s, c);
     }
     if (c.shortcut(.{ .key = 'v', .ctrl = true })) menu.paste(s);

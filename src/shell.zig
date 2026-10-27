@@ -67,6 +67,7 @@ const crumbs_narrow: f32 = 760;
 pub fn rail(s: *app.State, c: *ui.Context) void {
     const k = theme.colors(s.dark);
     const tr = i18n.strings(s.lang);
+    treeKeys(s, c);
     const side = ui.div(c).column().w(s.rail_w).hFull().bg(k.sidebar).px(10).gap(2);
     defer side.end();
     {
@@ -124,6 +125,73 @@ pub fn rail(s: *app.State, c: *ui.Context) void {
     }
 }
 
+/// The tree's keys, when the tree has the focus: the highlight walks
+/// the rows that are visible, right opens and goes in, left folds and
+/// goes out, Enter opens. Tab hands the focus back to the grid.
+fn treeKeys(s: *app.State, c: *ui.Context) void {
+    if (c.input.key == .tab) {
+        s.tree_focus = if (s.tree_focus == null) firstVisible(&s.tree) else null;
+        c.changed = true;
+        return;
+    }
+    const focus = s.tree_focus orelse return;
+    if (c.input.key) |k| switch (k) {
+        .up, .down => {
+            var rows: std.ArrayList(*model.Folder) = .empty;
+            defer rows.deinit(s.gpa);
+            visibleFolders(s.gpa, &s.tree, &rows);
+            var at: usize = 0;
+            for (rows.items, 0..) |row, i| {
+                if (row == focus) {
+                    at = i;
+                    break;
+                }
+            }
+            const next: usize = if (k == .up) at -| 1 else @min(at + 1, rows.items.len - 1);
+            s.tree_focus = rows.items[next];
+            c.changed = true;
+        },
+        .right => {
+            if (focus.children.len == 0) return;
+            if (focus.expanded) {
+                s.tree_focus = &focus.children[0];
+            } else focus.expanded = true;
+            c.changed = true;
+        },
+        .left => {
+            if (focus.expanded and focus.children.len > 0) {
+                focus.expanded = false;
+            } else if (model.parentOf(focus.path)) |parent| {
+                var found: ?*model.Folder = null;
+                findChild(s, &s.tree, parent, &found);
+                if (found) |p| s.tree_focus = p;
+            }
+            c.changed = true;
+        },
+        .enter => {
+            s.open(focus);
+            focus.expanded = true;
+            c.changed = true;
+        },
+        else => {},
+    };
+}
+
+/// The first folder the tree shows, for the Tab that hands the focus in.
+fn firstVisible(folder: *model.Folder) ?*model.Folder {
+    if (folder.children.len == 0) return null;
+    return &folder.children[0];
+}
+
+/// The folders the tree shows right now, the roots down: the open ones
+/// with their children after them, the folded ones alone.
+fn visibleFolders(gpa: std.mem.Allocator, folder: *model.Folder, out: *std.ArrayList(*model.Folder)) void {
+    for (folder.children) |*child| {
+        out.append(gpa, child) catch {};
+        if (child.expanded) visibleFolders(gpa, child, out);
+    }
+}
+
 /// A rail section's name.
 fn sideSection(c: *ui.Context, k: theme.Colors, name: []const u8) void {
     const d = ui.div(c).row().wFull().px(8).pt(14).pb(4);
@@ -137,7 +205,9 @@ fn folders(s: *app.State, c: *ui.Context, k: theme.Colors, folder: *model.Folder
         const fg = if (on) k.on_picked else k.text;
         {
             var row = ui.div(c).row().wFull().h(30).itemsCenter().gap(9).px(7).rounded(7).control();
-            row = if (on) row.bg(k.picked) else row.hover(k.hover);
+            // The keyboard's row stands out the way the pointer's does,
+            // so a walk in the tree can be followed without the mouse.
+            row = if (on) row.bg(k.picked) else if (s.tree_focus == child) row.bg(k.hover) else row.hover(k.hover);
             row = row.pl(7 + @as(f32, @floatFromInt(child.depth)) * 12);
             defer row.end();
             // The chevron is sampled first: a click on it folds the folder's
