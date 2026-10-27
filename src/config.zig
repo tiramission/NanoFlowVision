@@ -69,6 +69,9 @@ pub const Settings = struct {
     density: Density = .medium,
     /// Whether the interface skips its fades and slides.
     reduce_motion: bool = false,
+    /// Whether the tiles the reader has not chosen are dimmed while a
+    /// choice stands: the culling way of seeing.
+    dim_unselected: bool = true,
     /// How wide the navigation column is, 200 to 360.
     rail_w: f32 = 240,
     /// Whether the gallery takes the subfolders' pictures in.
@@ -120,6 +123,8 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, dir_path: []const u8) Settings {
             if (Density.fromName(value)) |d| out.density = d;
         } else if (std.mem.eql(u8, key, "reduce_motion")) {
             out.reduce_motion = std.mem.eql(u8, value, "1");
+        } else if (std.mem.eql(u8, key, "dim_unselected")) {
+            out.dim_unselected = std.mem.eql(u8, value, "1");
         } else if (std.mem.eql(u8, key, "rail_w")) {
             if (number(value)) |v| out.rail_w = @floatCast(v);
         } else if (std.mem.eql(u8, key, "recursive")) {
@@ -155,8 +160,8 @@ pub fn save(io: std.Io, dir_path: []const u8, s: Settings) void {
     var buf: [1024]u8 = undefined;
     var w = file.writer(io, &buf);
     w.interface.print(
-        "x = {d}\ny = {d}\nwidth = {d:.0}\nheight = {d:.0}\nappearance = {s}\ndensity = {s}\nreduce_motion = {d}\nrail_w = {d:.0}\nrecursive = {d}\nmaximized = {d}\nroot = {s}\nlang = {s}\n",
-        .{ s.x orelse -1, s.y orelse -1, s.width, s.height, @tagName(s.appearance), @tagName(s.density), @intFromBool(s.reduce_motion), s.rail_w, @intFromBool(s.recursive), @intFromBool(s.maximized), s.root, @tagName(s.lang) },
+        "x = {d}\ny = {d}\nwidth = {d:.0}\nheight = {d:.0}\nappearance = {s}\ndensity = {s}\nreduce_motion = {d}\ndim_unselected = {d}\nrail_w = {d:.0}\nrecursive = {d}\nmaximized = {d}\nroot = {s}\nlang = {s}\n",
+        .{ s.x orelse -1, s.y orelse -1, s.width, s.height, @tagName(s.appearance), @tagName(s.density), @intFromBool(s.reduce_motion), @intFromBool(s.dim_unselected), s.rail_w, @intFromBool(s.recursive), @intFromBool(s.maximized), s.root, @tagName(s.lang) },
     ) catch return;
     w.interface.flush() catch return;
 }
@@ -196,6 +201,7 @@ test "settings round-trip" {
         .appearance = .dark,
         .density = .large,
         .reduce_motion = true,
+        .dim_unselected = false,
         .rail_w = 300,
         .recursive = true,
     };
@@ -210,6 +216,7 @@ test "settings round-trip" {
     try std.testing.expectEqual(Appearance.dark, back.appearance);
     try std.testing.expectEqual(Density.large, back.density);
     try std.testing.expect(back.reduce_motion);
+    try std.testing.expect(!back.dim_unselected);
     try std.testing.expectEqual(@as(f32, 300), back.rail_w);
 
     // A file from before those keys: its own `dark` line still says which

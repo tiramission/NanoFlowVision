@@ -83,11 +83,17 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             0;
         ui.textf(c, .{ .size = 12, .mono = true, .color = k.secondary }, "{s}", .{i18n.measuringProgress(c.alloc(), s.lang, percent)});
     } else if (current) |folder| {
-        const count = if (s.shown.len == folder.pictures.len)
-            i18n.pictures(c.alloc(), s.lang, folder.pictures.len)
-        else
-            i18n.picturesOf(c.alloc(), s.lang, s.shown.len, folder.pictures.len);
-        ui.text(c, count, .{ .size = 12, .color = k.secondary });
+        // What the choice says, while there is one: how many of the
+        // folder's pictures are in it. Otherwise, how many there are.
+        if (s.select.count() > 0) {
+            ui.text(c, i18n.selectedOf(c.alloc(), s.lang, s.select.count(), folder.pictures.len), .{ .size = 12, .color = k.secondary });
+        } else {
+            const count = if (s.shown.len == folder.pictures.len)
+                i18n.pictures(c.alloc(), s.lang, folder.pictures.len)
+            else
+                i18n.picturesOf(c.alloc(), s.lang, s.shown.len, folder.pictures.len);
+            ui.text(c, count, .{ .size = 12, .color = k.secondary });
+        }
         ui.text(c, "·", .{ .size = 12, .color = k.tertiary });
         var buf: [24]u8 = undefined;
         ui.text(c, sizeText(&buf, shownBytes(s)), .{ .size = 12, .mono = true, .color = k.secondary });

@@ -9,6 +9,8 @@ const kit = nanoui.kit;
 const masonry = @import("masonry.zig");
 const model = @import("model.zig");
 const scan = @import("scan.zig");
+const select = @import("select.zig");
+const dialogs = @import("dialogs.zig");
 const thumbs = @import("thumbs.zig");
 const large = @import("large.zig");
 const menu = @import("menu.zig");
@@ -91,6 +93,9 @@ pub const State = struct {
     /// The rename box, for the picture being renamed.
     renaming: ?*model.Picture = null,
     rename_field: ui.TextBuffer = .{},
+    /// The box is up: it outlives `renaming` by the frames its exit
+    /// animation plays, and it is the flag the kit's dialog closes.
+    rename_open: bool = false,
     /// Whether the gallery lists the folders inside as well.
     recursive: bool = false,
     /// Whether the gallery is drawn dark.
@@ -120,6 +125,11 @@ pub const State = struct {
     appearance: config.Appearance = .auto,
     density: config.Density = .medium,
     reduce_motion: bool = false,
+    /// Whether the unchosen tiles stand back while a choice stands.
+    dim_unselected: bool = true,
+    /// The rename box said a name the folder already has: the box stays
+    /// up, and says so beside the field.
+    rename_error: bool = false,
     /// How wide the navigation column is, 200 to 360.
     rail_w: f32 = 240,
     /// The system appearance was last asked at this frame's time, for
@@ -135,6 +145,13 @@ pub const State = struct {
     density_at: ui.Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
     /// What the operations said back, drawn last in the frame.
     toaster: kit.Toaster,
+    /// The pictures the reader has chosen, keyed by their paths: a click
+    /// picks, the keyboard walks, the bulk acts on all of them.
+    select: select.Select = undefined,
+    /// The pictures the reader said to take to the bin, waiting for the
+    /// word: pointers into the folder's own list, which cannot change
+    /// while the confirmation stands over it.
+    confirming_trash: std.ArrayList(*model.Picture) = .empty,
     /// The folder shown could not be read: the dialog says so, over an
     /// empty page, until another folder opens.
     folder_broken: bool = false,
@@ -171,6 +188,7 @@ pub const State = struct {
             .pool = .{ .gpa = gpa, .io = io, .shared = &s.shared },
             .tree = .{ .path = root_path, .name = root_name },
             .toaster = .{ .gpa = gpa },
+            .select = .{ .gpa = gpa },
         };
         s.watcher = .{ .app = s, .gpa = gpa };
         try s.pool.start(gpa, io, &s.shared);
@@ -185,6 +203,8 @@ pub const State = struct {
         s.shared.deinit();
         s.tree.deinit(s.gpa);
         s.layout.deinit(s.gpa);
+        s.select.deinit();
+        s.confirming_trash.deinit(s.gpa);
         s.gpa.free(s.shown);
         s.gpa.free(s.aspects);
         if (s.large_key) |key| s.gpa.free(key);
@@ -314,8 +334,10 @@ pub const State = struct {
         s.laid_out_for = 0;
         s.last_offset = 0;
         s.scroll_to_top = true;
-        // A new folder starts unfiltered; the sort stays as it was.
+        // A new folder starts unfiltered and unchosen; the sort stays as
+        // it was.
         s.search.clear();
+        s.select.clear();
         s.listed_at = -1;
         s.orderChanged();
         // Every picture's size is read first, so the layout is made once and
@@ -324,30 +346,6 @@ pub const State = struct {
         // The folder is watched from now on: what changes on the disk
         // arrives by itself.
         s.watcher.start(folder.path);
-    }
-
-    /// Asks the reader for a folder, and queues it as the new root. The
-    /// dialog itself must not open inside the build: `shell.askFolder`
-    /// takes the wish and the loop calls back after this frame, from
-    /// outside any build, where the dialog can open.
-    pub fn openFolderDialog(s: *State) void {
-        s.dialog_pending = true;
-        nanoui.App.after(0, s, folderDialogFromMain);
-    }
-
-    /// Runs the dialog, outside any frame (see `openFolderDialog`).
-    fn folderDialogFromMain(ctx: ?*anyopaque) callconv(.c) void {
-        const s: *State = @ptrCast(@alignCast(ctx.?));
-        if (!s.dialog_pending) return;
-        s.dialog_pending = false;
-        shell.runFolderDialog(s);
-    }
-
-    /// Holds a chosen folder for the next frame, when no one is walking
-    /// the tree it replaces.
-    pub fn queueReroot(s: *State, path: []const u8) void {
-        if (s.reroot_pending) |old| s.gpa.free(old);
-        s.reroot_pending = s.gpa.dupe(u8, path) catch null;
     }
 
     /// Makes another folder the root: the tree is read from it anew, the
@@ -418,21 +416,6 @@ pub const State = struct {
         s.toaster.push(.{ .status = status, .title = title });
     }
 
-    /// The folder could not be read: said in a dialog over the page, with
-    /// the way out at hand. The dialog is drawn here, in the frame; the
-    /// system dialog it can lead to opens after the frame, as always.
-    fn brokenFolderDialog(s: *State, c: *ui.Context) void {
-        const tr = i18n.strings(s.lang);
-        const d = kit.dialog(c, "folder-broken", &s.folder_broken, .{
-            .title = tr.folder_unreadable,
-            .description = if (s.current) |f| f.path else "",
-            .ok = tr.choose_other_folder,
-            .cancel = "",
-            .close_button = false,
-        }) orelse return;
-        if (d.end() == .ok) s.openFolderDialog();
-    }
-
     /// Writes the settings as they are now: the window's frame, the look,
     /// what the gallery takes in, the language. Called when a setting
     /// changes and when the window closes. A maximized window is recorded
@@ -444,6 +427,7 @@ pub const State = struct {
             .appearance = s.appearance,
             .density = s.density,
             .reduce_motion = s.reduce_motion,
+            .dim_unselected = s.dim_unselected,
             .rail_w = s.rail_w,
             .recursive = s.recursive,
             .lang = s.lang,
@@ -504,6 +488,9 @@ pub const State = struct {
         s.gpa.free(s.shown);
         s.shown = shown;
         s.shown_version = s.order_version;
+        // The folder may have been listed again: the choice keeps what
+        // the disk still holds, and lets the rest go.
+        s.select.keepAlive(folder.pictures);
     }
 
     /// The pictures' places. Made once their sizes are known, and again when
@@ -547,6 +534,23 @@ pub const State = struct {
         if (s.reduce_motion) c.reduced_motion = true;
         // Dark or light, wherever the eye is.
         if (c.shortcut(.{ .key = 'd', .ctrl = true })) s.toggleDark();
+        // The escape that falls all the way down the layers: the ones
+        // below take it first -- a field's typing, the menu and the
+        // boxes, the large view. When nothing is up, it lets go of the
+        // choice, and that is the last thing it takes away. The key is
+        // only looked at here, never taken: taking it would be stealing
+        // it from the layer that owns it.
+        const plain_esc = if (c.input.shortcut) |sc| sc.key == ui.Shortcut.escape else false;
+        if (plain_esc and
+            s.large == null and s.menu_for == null and !s.rename_open and
+            s.settings_open == false and s.folder_broken == false and
+            s.confirming_trash.items.len == 0 and s.tag_editing == false)
+        {
+            if (s.select.count() > 0) {
+                s.select.clear();
+                c.changed = true;
+            }
+        }
         // "Follow the system" is in no hurry: once a minute is often
         // enough, and the answer rarely changes under anyone.
         if (s.appearance == .auto and c.time - s.system_checked >= 60) {
@@ -587,7 +591,8 @@ pub const State = struct {
         // them positions against the window, not against a column.
         menu.view(s, c);
         if (s.settings_open) settings.view(s, c);
-        if (s.folder_broken) s.brokenFolderDialog(c);
+        if (s.folder_broken) dialogs.brokenFolder(s, c);
+        if (s.confirming_trash.items.len > 0) dialogs.trashConfirm(s, c);
         // And what the operations said, over all of it.
         s.toaster.view(c);
     }

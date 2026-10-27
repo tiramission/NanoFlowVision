@@ -1,13 +1,15 @@
-//! The menu of what one picture can have done to it -- opened large, put
-//! on the clipboard, renamed, taken to the bin -- and the rename box it
-//! can open. The menu sits at the corner it was opened from, over a sheet
-//! that takes any click that misses it.
+//! The menu of what a picture -- or the choice -- can have done to it,
+//! and the rename box it can open. The menu is the kit's own: it hangs
+//! from the corner it was opened at, dismisses on a click that misses,
+//! and says each command's key beside it.
 
 const std = @import("std");
 const nanoui = @import("nanoui");
 const ui = nanoui.ui;
+const kit = nanoui.kit;
 
 const app = @import("app.zig");
+const dialogs = @import("dialogs.zig");
 const large = @import("large.zig");
 const model = @import("model.zig");
 const ops = @import("ops.zig");
@@ -49,145 +51,173 @@ pub fn paste(s: *app.State) void {
     }
 }
 
-const Action = enum { open_large, open_system, reveal, copy, rename, trash };
-
-/// The mark each action carries in the menu, from the same line-icon
-/// set the rest of the interface speaks in.
-fn symbol(action: Action) []const u8 {
-    return switch (action) {
-        .open_large => "photo",
-        .open_system => "arrow.right.square",
-        .reveal => "folder",
-        .copy => "doc.on.doc",
-        .rename => "pencil",
-        .trash => "trash",
-    };
+/// Copies the pictures onto the clipboard, as files, in the order shown.
+fn copyPics(s: *app.State, pics: []const *model.Picture) void {
+    if (pics.len == 0) return;
+    const paths = s.gpa.alloc([]const u8, pics.len) catch return;
+    defer s.gpa.free(paths);
+    for (pics, 0..) |p, i| paths[i] = p.path;
+    ops.copyFilesToClipboard(s.gpa, paths);
+    s.toast(.success, i18n.strings(s.lang).copied);
 }
 
-/// The menu and the rename box, over the gallery they belong to.
+/// The menu, over the gallery it belongs to: one picture's commands, or
+/// -- while a choice stands that is more than the one it was opened
+/// from -- the choice's own two.
 pub fn view(s: *app.State, c: *ui.Context) void {
-    const th = c.theme;
-    if (s.renaming) |rp| {
-        renameBox(s, c, th, rp);
+    if (s.rename_open) {
+        renameDialog(s, c);
         return;
     }
-    const mp = s.menu_for orelse return;
+    if (s.menu_for == null) return;
 
-    // A click that misses the menu closes it.
-    {
-        const sheet = ui.div(c).absolute().offset(0, 0).sizeFull().control();
-        defer sheet.end();
-        if (sheet.clicked()) s.menu_for = null;
+    var open = s.menu_for != null;
+    const tr = i18n.strings(s.lang);
+    var items: [8]kit.MenuItem = undefined;
+    var n: usize = 0;
+
+    if (s.select.count() > 1 and s.select.has(s.menu_for.?.path)) {
+        // The choice's menu: the two things a handful of pictures can
+        // ask for together, and nothing that would have to ask one by
+        // one. The bin's own line is in the command bar's colour of
+        // trouble, so the hand lands there on purpose.
+        items[n] = .{ .label = tr.copy, .icon = "doc.on.doc", .shortcut = "⌘C" };
+        n += 1;
+        items[n] = .{ .label = tr.trash_selected, .icon = "trash", .shortcut = "⌫", .danger = true };
+        n += 1;
+    } else {
+        const mp = s.menu_for.?;
+        items[n] = .{ .label = tr.open_large, .icon = "photo", .shortcut = "␣" };
+        n += 1;
+        items[n] = .{ .label = tr.open_system, .icon = "arrow.right.square", .shortcut = "⌘↩" };
+        n += 1;
+        items[n] = .{ .label = tr.reveal, .icon = "folder", .shortcut = "⌘⇧R" };
+        n += 1;
+        items[n] = .{ .label = tr.copy, .icon = "doc.on.doc", .shortcut = "⌘C" };
+        n += 1;
+        items[n] = .{ .label = tr.rename_menu, .icon = "pencil", .shortcut = "F2", .disabled = !large.editable(mp.name) };
+        n += 1;
+        items[n] = .{ .separator = true };
+        n += 1;
+        items[n] = .{ .label = tr.to_bin, .icon = "trash", .shortcut = "⌫", .danger = true };
+        n += 1;
     }
 
-    const menu = ui.div(c).absolute()
-        .offset(s.menu_at.x, s.menu_at.y)
-        .w(200)
-        .p(4)
-        .gap(2)
-        .rounded(10)
-        .bg(th.surface)
-        .shadowMd();
-    defer menu.end();
-    const tr = i18n.strings(s.lang);
-    item(s, c, th, mp, tr.open_large, .open_large);
-    item(s, c, th, mp, tr.open_system, .open_system);
-    item(s, c, th, mp, tr.reveal, .reveal);
-    item(s, c, th, mp, tr.copy, .copy);
-    item(s, c, th, mp, tr.rename_menu, .rename);
-    item(s, c, th, mp, tr.to_bin, .trash);
-}
-
-fn item(s: *app.State, c: *ui.Context, th: anytype, mp: *model.Picture, label: []const u8, action: Action) void {
-    const it = ui.pressable(c, .{
-        .width = .{ .px = 178 },
-        .direction = .row,
-        .padding = .xy(10, 6),
-        .radius = 6,
-        .gap = 9,
-        .control = true,
-        .align_items = .center,
-    }, th.surface_hover);
-    defer c.end();
-    ui.icon(c, symbol(action), .{ .size = 13, .color = th.muted });
-    ui.text(c, label, .{ .size = 13 });
-    if (it.clicked) {
-        s.menu_for = null;
-        const tr = i18n.strings(s.lang);
-        switch (action) {
-            .open_large => large.show(s, mp),
-            .open_system => _ = ops.open(mp.path),
-            .reveal => ops.reveal(mp.path),
-            .copy => {
-                ops.copyFileToClipboard(s.gpa, mp.path);
-                s.toast(.success, tr.copied);
-            },
-            .rename => {
-                s.renaming = mp;
-                s.rename_field.set(mp.name);
-            },
-            .trash => {
-                if (ops.trash(mp.path)) {
-                    s.relist_pending = true;
-                    s.toast(.success, tr.trashed);
-                } else s.toast(.danger, tr.trash_failed);
-            },
+    if (kit.menu(c, "picture-menu", &open, s.menu_at, items[0..n], .{})) |chosen| {
+        const mp = s.menu_for.?;
+        // What the command lands on: the whole choice when the menu was
+        // the choice's own, the one picture otherwise.
+        var picked: []*model.Picture = &.{};
+        var owned = false;
+        if (s.select.count() > 1 and s.select.has(mp.path)) {
+            if (s.select.chosen(s.gpa, s.shown)) |got| {
+                picked = got;
+                owned = true;
+            } else |_| {}
+        } else {
+            if (s.gpa.alloc(*model.Picture, 1)) |one| {
+                one[0] = mp;
+                picked = one[0..1];
+                owned = true;
+            } else |_| {}
+        }
+        defer if (owned) s.gpa.free(picked);
+        const multi = picked.len > 1;
+        if (!multi) {
+            switch (chosen) {
+                0 => large.show(s, mp),
+                1 => _ = ops.open(mp.path),
+                2 => ops.reveal(mp.path),
+                3 => copyPics(s, picked),
+                4 => {
+                    s.renaming = mp;
+                    s.rename_open = true;
+                    s.rename_field.set(mp.name);
+                    s.rename_error = false;
+                },
+                6 => dialogs.askTrash(s, picked),
+                else => {},
+            }
+        } else {
+            switch (chosen) {
+                0 => copyPics(s, picked),
+                1 => dialogs.askTrash(s, picked),
+                else => {},
+            }
         }
     }
+    // The menu dismissed itself -- a click that missed, or the key --
+    // and the state follows it out.
+    if (!open and s.menu_for != null) s.menu_for = null;
 }
 
-/// The box that renames a picture: its name in a field, or a click on
-/// the rest of the window to leave it as it is.
-fn renameBox(s: *app.State, c: *ui.Context, th: anytype, rp: *model.Picture) void {
-    {
-        const sheet = ui.div(c).absolute().offset(0, 0).sizeFull().control();
-        defer sheet.end();
-        if (sheet.clicked()) {
+/// The box that renames a picture: its name in a field, Cancel beside
+/// Rename. A name that is taken does not close the box -- it says so
+/// beside the field, and the typing carries on.
+fn renameDialog(s: *app.State, c: *ui.Context) void {
+    const tr = i18n.strings(s.lang);
+    const d = kit.dialog(c, "rename", &s.rename_open, .{
+        .title = tr.rename_title,
+        .ok = tr.rename_title,
+        .cancel = tr.cancel,
+        .close_button = false,
+    }) orelse {
+        // Gone, and the exit with it: nothing left over.
+        if (s.renaming != null) {
             s.renaming = null;
             s.rename_field.clear();
+            s.rename_error = false;
         }
+        return;
+    };
+    const field = ui.textField(c, &s.rename_field, .{ .width = .{ .px = 380 }, .size = 13 });
+    if (s.rename_error) {
+        ui.text(c, tr.rename_taken, .{ .size = 12, .color = c.theme.danger });
     }
-
-    const box = ui.div(c).absolute()
-        .offset(@max(0, (c.size.w - 340) / 2), @max(0, (c.size.h - 110) / 2))
-        .w(340)
-        .p(14)
-        .gap(8)
-        .rounded(10)
-        .bg(th.surface)
-        .shadowMd();
-    defer box.end();
-    const tr = i18n.strings(s.lang);
-    ui.text(c, tr.rename_title, .{ .size = 13, .weight = .semibold });
-    const field = ui.textField(c, &s.rename_field, .{ .width = .{ .px = 308 }, .size = 13 });
-    ui.row(c, .{ .width = .{ .px = 308 }, .gap = 8, .align_items = .center });
-    defer c.end();
-    ui.spacer(c);
-    if (ui.button(c, tr.cancel, .{ .variant = .ghost, .size = 13 }).clicked) {
+    const said = d.end();
+    if (field.submitted or said == .ok) tryRename(s);
+    if (!s.rename_open and s.renaming != null) {
+        // Escaped, or cancelled: the name is left as it was.
         s.renaming = null;
         s.rename_field.clear();
+        s.rename_error = false;
     }
-    if (ui.button(c, tr.rename_title, .{ .size = 13 }).clicked) commit(s, rp);
-    if (field.submitted) commit(s, rp);
 }
 
 /// Puts the new name on the file, and into the tree, the gallery and the
-/// cache. A name that is taken leaves everything as it was.
-fn commit(s: *app.State, rp: *model.Picture) void {
+/// cache. A name that is taken keeps the box up, with the word beside
+/// the field; anything else that fails says so and closes.
+fn tryRename(s: *app.State) void {
+    const rp = s.renaming orelse return;
     const new_name = std.mem.trim(u8, s.rename_field.text(), " ");
-    defer s.rename_field.clear();
-    s.renaming = null;
-    if (new_name.len == 0 or std.mem.eql(u8, new_name, rp.name)) return;
-    const tr = i18n.strings(s.lang);
+    if (new_name.len == 0 or std.mem.eql(u8, new_name, rp.name)) {
+        // The same name, or nothing: the box goes, nothing changed.
+        s.rename_open = false;
+        s.renaming = null;
+        s.rename_field.clear();
+        s.rename_error = false;
+        return;
+    }
     const new_path = ops.renameFile(s.gpa, s.io, rp.path, new_name) catch |err| {
-        // A name another file has, said so; the file keeps the name it
-        // had, and the box it came from is already gone.
-        if (err == error.NameExists) s.toast(.danger, tr.rename_taken);
+        if (err == error.NameExists) {
+            // The word, beside the field, where the typing is.
+            s.rename_error = true;
+            return;
+        }
+        s.toast(.danger, i18n.strings(s.lang).rename_taken);
+        s.rename_open = false;
+        s.renaming = null;
+        s.rename_field.clear();
         return;
     };
+    s.rename_error = false;
+    s.rename_open = false;
+    s.renaming = null;
+    s.rename_field.clear();
     // The cache moves the picture's entries to the new path, so nothing
-    // decodes again.
+    // decodes again; the choice follows the file, not the name.
     s.shared.renameKey(s.gpa, rp.path, new_path);
+    s.select.rename(rp.path, new_path);
     const name = s.gpa.dupe(u8, new_name) catch {
         s.gpa.free(new_path);
         return;

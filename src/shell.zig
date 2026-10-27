@@ -17,11 +17,26 @@ const model = @import("model.zig");
 const nfd = @import("nfd");
 const theme = @import("theme.zig");
 
-/// The folder dialog, run from the loop's callback: never inside a
-/// frame's build, where the dialog's own message pump would redraw the
-/// view inside itself. The reader's choice goes to the queue as the new
-/// root (`State.queueReroot`), and the next frame takes it in.
-pub fn runFolderDialog(s: *app.State) void {
+/// Asks the reader for a folder, and queues it as the new root. The
+/// dialog itself must not open inside the build: the wish is recorded
+/// here, and the loop calls back after this frame, from outside any
+/// build, where the dialog can open.
+pub fn askForFolder(s: *app.State) void {
+    s.dialog_pending = true;
+    nanoui.App.after(0, s, folderDialogFromMain);
+}
+
+/// Runs the dialog, outside any frame (see `askForFolder`).
+fn folderDialogFromMain(ctx: ?*anyopaque) callconv(.c) void {
+    const s: *app.State = @ptrCast(@alignCast(ctx.?));
+    if (!s.dialog_pending) return;
+    s.dialog_pending = false;
+    runFolderDialog(s);
+}
+
+/// The dialog itself: the reader's choice goes to the queue as the new
+/// root, and the next frame takes it in.
+fn runFolderDialog(s: *app.State) void {
     // The dialog reads a zero-ended path; the tree's own slice has no
     // sentinel, so a copy gets one.
     const start = s.gpa.alloc(u8, s.tree.path.len + 1) catch return;
@@ -31,8 +46,15 @@ pub fn runFolderDialog(s: *app.State) void {
     const picked = nfd.openFolderDialog(start[0..s.tree.path.len :0]) catch return;
     if (picked) |folder| {
         defer nfd.freePath(folder);
-        s.queueReroot(folder);
+        queueReroot(s, folder);
     }
+}
+
+/// Holds a chosen folder for the next frame, when no one is walking the
+/// tree it replaces.
+fn queueReroot(s: *app.State, path: []const u8) void {
+    if (s.reroot_pending) |old| s.gpa.free(old);
+    s.reroot_pending = s.gpa.dupe(u8, path) catch null;
 }
 
 /// How tall the command bar is.
@@ -76,7 +98,7 @@ pub fn rail(s: *app.State, c: *ui.Context) void {
         var row = ui.div(c).row().wFull().h(30).itemsCenter().gap(9).px(7).rounded(7).control();
         defer row.end();
         row = row.hover(k.hover);
-        if (row.clicked()) s.openFolderDialog();
+        if (row.clicked()) askForFolder(s);
         {
             const chip = ui.div(c).row().w(20).h(20).center().rounded(6).bg(k.accent.alpha(0.16));
             defer chip.end();

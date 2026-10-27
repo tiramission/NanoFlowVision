@@ -78,6 +78,15 @@ pub const Strings = struct {
     /// The status bar, and the tile that cannot be read.
     measuring_progress: []const u8,
     decode_failed: []const u8,
+    /// The choice: what the status bar says, and the bulk's own words.
+    selected_of: []const u8,
+    select_all: []const u8,
+    clear_selection: []const u8,
+    dim_unselected: []const u8,
+    /// "{d} of the chosen pictures" (a plural sentence of its own).
+    trash_confirm_title: []const u8,
+    trash_confirm_body: []const u8,
+    trash_selected: []const u8,
 };
 
 const en: Strings = .{
@@ -140,6 +149,13 @@ const en: Strings = .{
     .rate_failed = "Rating wasn't written to the file",
     .measuring_progress = "Measuring {d}%",
     .decode_failed = "Can't read",
+    .selected_of = "{d} of {d} selected",
+    .select_all = "Select all",
+    .clear_selection = "Clear selection",
+    .dim_unselected = "Dim unselected while culling",
+    .trash_confirm_title = "Delete {d} pictures?",
+    .trash_confirm_body = "First {s} · last {s}. They can be restored from the system bin.",
+    .trash_selected = "Move to Recycle Bin",
 };
 
 const zh: Strings = .{
@@ -202,6 +218,13 @@ const zh: Strings = .{
     .rate_failed = "评分未写入文件",
     .measuring_progress = "正在测量 {d}%",
     .decode_failed = "无法读取",
+    .selected_of = "已选 {d} / 共 {d}",
+    .select_all = "选择全部",
+    .clear_selection = "清除选择",
+    .dim_unselected = "挑拣时压暗未选中",
+    .trash_confirm_title = "删除 {d} 张图片？",
+    .trash_confirm_body = "首张 {s} · 末张 {s}。可在系统回收站中恢复。",
+    .trash_selected = "移到回收站",
 };
 
 /// The strings for `lang`.
@@ -284,6 +307,30 @@ pub fn noMatches(alloc: std.mem.Allocator, lang: Lang, query: []const u8) []cons
     };
 }
 
+/// "{d} of {d} selected", the status bar's line while a choice stands.
+pub fn selectedOf(alloc: std.mem.Allocator, lang: Lang, chosen: usize, total: usize) []const u8 {
+    return switch (lang) {
+        .en => std.fmt.allocPrint(alloc, en.selected_of, .{ chosen, total }) catch "…",
+        .zh => std.fmt.allocPrint(alloc, zh.selected_of, .{ chosen, total }) catch "…",
+    };
+}
+
+/// "Delete {d} pictures?", the confirmation's title.
+pub fn trashConfirmTitle(alloc: std.mem.Allocator, lang: Lang, n: usize) []const u8 {
+    return switch (lang) {
+        .en => std.fmt.allocPrint(alloc, en.trash_confirm_title, .{n}) catch "…",
+        .zh => std.fmt.allocPrint(alloc, zh.trash_confirm_title, .{n}) catch "…",
+    };
+}
+
+/// "First {s} · last {s}. They can be restored from the system bin."
+pub fn trashConfirmBody(alloc: std.mem.Allocator, lang: Lang, first: []const u8, last: []const u8) []const u8 {
+    return switch (lang) {
+        .en => std.fmt.allocPrint(alloc, en.trash_confirm_body, .{ first, last }) catch "…",
+        .zh => std.fmt.allocPrint(alloc, zh.trash_confirm_body, .{ first, last }) catch "…",
+    };
+}
+
 test "both languages carry every string, non-empty" {
     inline for (langs) |lang| {
         const s = strings(lang);
@@ -317,6 +364,10 @@ test "both languages carry every string, non-empty" {
             s.paste_failed, s.copied,
             s.rename_taken, s.rate_failed,
             s.measuring_progress, s.decode_failed,
+            s.selected_of,   s.select_all,
+            s.clear_selection, s.dim_unselected,
+            s.trash_confirm_title, s.trash_confirm_body,
+            s.trash_selected,
         };
         for (all) |v| try std.testing.expect(v.len > 0);
     }

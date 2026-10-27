@@ -7,6 +7,8 @@ const app = @import("app.zig");
 comptime {
     _ = @import("tests_meta.zig");
     _ = @import("tests_view.zig");
+    _ = @import("select.zig");
+    _ = @import("tests_select.zig");
 }
 const decode = @import("decode.zig");
 const thumbs = @import("thumbs.zig");

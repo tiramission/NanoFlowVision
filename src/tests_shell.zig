@@ -262,7 +262,7 @@ test "a folder that cannot be read says so, with the way out" {
     // not read, with a button that leads out of it.
     try std.testing.expect(state.folder_broken);
     try std.testing.expect(t.hasText("Can't open this folder"));
-    try std.testing.expect(t.hasText("nowhere"));
+    try std.testing.expect(t.containsText("nowhere"));
     try std.testing.expect(t.hasText("Open another folder"));
 
     // Escape stands it down: the app goes on, empty but alive.

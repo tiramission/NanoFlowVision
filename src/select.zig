@@ -109,6 +109,13 @@ pub const Select = struct {
         for (shown) |pic| s.take(pic.path);
     }
 
+    /// What the marquee decided: exactly these paths, whatever was chosen
+    /// before. The anchor and the cursor are not the marquee's to move.
+    pub fn onlyPaths(s: *Select, paths: []const []const u8) void {
+        s.clearSet();
+        for (paths) |p| s.take(p);
+    }
+
     /// The chosen pictures, in the order the gallery shows them. The list
     /// is the caller's to free; the pictures are the folder's own.
     pub fn chosen(s: *const Select, gpa: std.mem.Allocator, shown: []const *model.Picture) ![]*model.Picture {
@@ -131,12 +138,12 @@ pub const Select = struct {
     /// chosen, and the paths of what went away -- trashed elsewhere,
     /// moved by hand -- leave the set.
     pub fn keepAlive(s: *Select, pictures: []const model.Picture) void {
-        var gone: std.ArrayList([]u8) = .empty;
+        var gone: std.ArrayList([]const u8) = .empty;
         defer gone.deinit(s.gpa);
         var it = s.set.keyIterator();
         while (it.next()) |key| {
             var found = false;
-            for (pictures) |*pic| {
+            for (pictures) |pic| {
                 if (std.mem.eql(u8, pic.path, key.*)) {
                     found = true;
                     break;
@@ -218,7 +225,7 @@ test "a rename follows, a rescan keeps the survivors, a folder clears" {
     try std.testing.expectEqual(@as(usize, 2), s.count());
 
     // Rescanned and b is gone from the disk: a survives, b does not.
-    var a2 = model.Picture{ .path = @constCast("renamed.png"), .name = @constCast("renamed.png") };
+    const a2 = model.Picture{ .path = @constCast("renamed.png"), .name = @constCast("renamed.png") };
     s.keepAlive(&.{a2});
     try std.testing.expect(s.has("renamed.png"));
     try std.testing.expectEqual(@as(usize, 1), s.count());

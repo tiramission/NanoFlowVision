@@ -65,6 +65,13 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         c.changed = true;
     }
 
+    // Culling, seen the culling way: the unchosen stand back while a
+    // choice stands. Off, the wall holds still.
+    if (ui.checkbox(c, tr.dim_unselected, &s.dim_unselected)) {
+        s.saveSettings();
+        c.changed = true;
+    }
+
     // How wide the navigation column is, and the way back to the default.
     group(c, tr.rail_width, k.secondary);
     {

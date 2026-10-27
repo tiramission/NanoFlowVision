@@ -68,7 +68,7 @@ fn neighbor(s: *app.State, step: i32) void {
 
 /// Whether the picture's file is one we know how to write: a jpeg. The
 /// other formats' containers are a later write.
-fn editable(name: []const u8) bool {
+pub fn editable(name: []const u8) bool {
     return std.ascii.endsWithIgnoreCase(name, ".jpg") or
         std.ascii.endsWithIgnoreCase(name, ".jpeg");
 }
@@ -81,6 +81,16 @@ fn rate(s: *app.State, pic: *model.Picture, m: *exif.Meta, stars: i8) void {
     if (m.rating == r) return;
     m.rating = r;
     save(s, pic, m);
+}
+
+/// Stars for the whole choice at once: the grid's 0 to 5 over a
+/// selection. Each file is written on its own; the ones that made it say
+/// so in the cache, the ones that did not keep their old stars.
+pub fn rateBatch(s: *app.State, pics: []const *model.Picture, stars: i8) void {
+    for (pics) |pic| {
+        var m = s.shared.metaOf(pic.path) orelse exif.Meta{};
+        rate(s, pic, &m, stars);
+    }
 }
 
 fn addTag(s: *app.State, pic: *model.Picture, m: *exif.Meta, tag: []const u8) void {

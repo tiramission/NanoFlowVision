@@ -29,8 +29,14 @@ pub fn trash(path: []const u8) bool {
 /// Copies a file onto the clipboard, as files: a paste in the file
 /// manager takes it, and so does the app itself.
 pub fn copyFileToClipboard(gpa: std.mem.Allocator, path: []const u8) void {
+    copyFilesToClipboard(gpa, &.{path});
+}
+
+/// Copies several files at once, as files, in the order given.
+pub fn copyFilesToClipboard(gpa: std.mem.Allocator, paths: []const []const u8) void {
+    if (paths.len == 0) return;
     if (comptime builtin.os.tag == .windows) {
-        copyFilesWindows(gpa, &.{path});
+        copyFilesWindows(gpa, paths);
         return;
     }
     // TODO(mac): the file clipboard.
@@ -51,7 +57,20 @@ pub fn renameFile(gpa: std.mem.Allocator, io: std.Io, old_path: []const u8, new_
     errdefer gpa.free(new_path);
     if (std.mem.eql(u8, old_path, new_path)) return error.SameName;
     if (exists(io, new_path)) return error.NameExists;
-    try std.Io.Dir.renameAbsolute(old_path, new_path, io);
+    // The readers hold photographs open while they decode them, and a
+    // file mid-decode cannot be renamed under its reader. A decode lasts
+    // moments, so a sharing violation is worth a short wait and another
+    // try -- the same patience the rating's write has (xmp.zig).
+    var attempt: usize = 0;
+    while (true) {
+        std.Io.Dir.renameAbsolute(old_path, new_path, io) catch |err| {
+            attempt += 1;
+            if (err != error.Unexpected or attempt >= 50) return err;
+            std.Io.sleep(io, .fromMilliseconds(20), .awake) catch {};
+            continue;
+        };
+        break;
+    }
     return new_path;
 }
 

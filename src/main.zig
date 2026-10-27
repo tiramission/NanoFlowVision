@@ -45,6 +45,7 @@ fn runApp(nanoui_app: *nanoui.App, init: std.process.Init) !void {
         .dark => true,
     };
     state.reduce_motion = settings.reduce_motion;
+    state.dim_unselected = settings.dim_unselected;
     state.density = settings.density;
     state.rail_w = settings.rail_w;
     state.recursive = settings.recursive;
@@ -83,17 +84,17 @@ fn runApp(nanoui_app: *nanoui.App, init: std.process.Init) !void {
 /// The settings, and the folder they live in (owned, when there is one).
 /// A window that closed maximized is not restored at the screen's size:
 /// it opens at the app's own size, as if it had never been dragged out.
-fn loadSettings(gpa: std.mem.Allocator, io: std.Io) struct { dir_path: ?[]u8, appearance: config.Appearance, reduce_motion: bool, density: config.Density, rail_w: f32, recursive: bool, lang: i18n.Lang, x: ?f64, y: ?f64, width: f64, height: f64, root: []const u8 } {
+fn loadSettings(gpa: std.mem.Allocator, io: std.Io) struct { dir_path: ?[]u8, appearance: config.Appearance, reduce_motion: bool, dim_unselected: bool, density: config.Density, rail_w: f32, recursive: bool, lang: i18n.Lang, x: ?f64, y: ?f64, width: f64, height: f64, root: []const u8 } {
     const dir_path: ?[]u8 = nanoui.path(gpa, .data, app_name) catch null;
     if (dir_path) |d| {
         std.Io.Dir.createDirAbsolute(io, d, .default_file) catch {};
         const s = config.load(gpa, io, d);
         if (s.maximized) {
-            return .{ .dir_path = d, .appearance = s.appearance, .reduce_motion = s.reduce_motion, .density = s.density, .rail_w = s.rail_w, .recursive = s.recursive, .lang = s.lang, .x = null, .y = null, .width = 1100, .height = 720, .root = s.root };
+            return .{ .dir_path = d, .appearance = s.appearance, .reduce_motion = s.reduce_motion, .dim_unselected = s.dim_unselected, .density = s.density, .rail_w = s.rail_w, .recursive = s.recursive, .lang = s.lang, .x = null, .y = null, .width = 1100, .height = 720, .root = s.root };
         }
-        return .{ .dir_path = d, .appearance = s.appearance, .reduce_motion = s.reduce_motion, .density = s.density, .rail_w = s.rail_w, .recursive = s.recursive, .lang = s.lang, .x = s.x, .y = s.y, .width = s.width, .height = s.height, .root = s.root };
+        return .{ .dir_path = d, .appearance = s.appearance, .reduce_motion = s.reduce_motion, .dim_unselected = s.dim_unselected, .density = s.density, .rail_w = s.rail_w, .recursive = s.recursive, .lang = s.lang, .x = s.x, .y = s.y, .width = s.width, .height = s.height, .root = s.root };
     }
-    return .{ .dir_path = null, .appearance = .auto, .reduce_motion = false, .density = .medium, .rail_w = 240, .recursive = false, .lang = .zh, .x = null, .y = null, .width = 1100, .height = 720, .root = "" };
+    return .{ .dir_path = null, .appearance = .auto, .reduce_motion = false, .dim_unselected = true, .density = .medium, .rail_w = 240, .recursive = false, .lang = .zh, .x = null, .y = null, .width = 1100, .height = 720, .root = "" };
 }
 
 /// The window is closing: the way it sat is remembered, unless the window

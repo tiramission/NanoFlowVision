@@ -7,12 +7,14 @@ const nanoui = @import("nanoui");
 const ui = nanoui.ui;
 
 const app = @import("app.zig");
+const dialogs = @import("dialogs.zig");
 const i18n = @import("i18n.zig");
 const kit = nanoui.kit;
 const large = @import("large.zig");
 const masonry = @import("masonry.zig");
 const menu = @import("menu.zig");
 const model = @import("model.zig");
+const ops = @import("ops.zig");
 const theme = @import("theme.zig");
 const thumbs = @import("thumbs.zig");
 
@@ -22,6 +24,9 @@ const prefetch_ahead: f32 = 4.0;
 const prefetch_behind: f32 = 1.0;
 /// How far above and below the window pictures are built, in windows.
 const build_margin: f32 = 0.25;
+
+/// Which way the cursor walks: across the columns, or along one.
+const Walk = enum { left, right, up, down };
 
 /// The gallery's own column: under it the grid, above it the command bar
 /// and the status bar that the shell and the statusbar draw (app.zig's
@@ -36,17 +41,11 @@ pub fn view(s: *app.State, c: *ui.Context) void {
 fn viewGrid(s: *app.State, c: *ui.Context) void {
     const th = c.theme;
     const tr = i18n.strings(s.lang);
-    // Esc takes the menu or the rename box away -- and only when one of
-    // them is actually up. A key this view does not use is left alone, so
-    // it still reaches what is drawn after it (the settings panel, for
-    // one): the layers take turns with the key, they do not race.
-    if (s.renaming != null) {
-        if (c.shortcut(.{ .key = ui.Shortcut.escape })) {
-            s.renaming = null;
-            s.rename_field.clear();
-        }
-    } else if (s.menu_for != null) {
-        if (c.shortcut(.{ .key = ui.Shortcut.escape })) s.menu_for = null;
+    // The menu and the rename box are the kit's own overlays now: they
+    // take their own escape, and a click that misses them. The grid's
+    // keys belong to the gallery only when none of that is up.
+    if (s.menu_for == null and !s.rename_open and s.confirming_trash.items.len == 0) {
+        gridKeys(s, c);
     }
     if (c.shortcut(.{ .key = 'v', .ctrl = true })) menu.paste(s);
     const id = c.peekId(null);
@@ -75,6 +74,24 @@ fn viewGrid(s: *app.State, c: *ui.Context) void {
         s.scroll_to_top = false;
         c.scroll.put(c.gpa, id, 0) catch {};
         offset = 0;
+    }
+    // The cursor's picture stays where the eye can see it: the walk may
+    // have moved it off the screen, and the view follows the keyboard.
+    if (s.layout.placements.len == s.shown.len) {
+        if (s.select.cursor) |ci| {
+            if (ci < s.layout.placements.len) {
+                const p = s.layout.placements[ci];
+                const top = p.y - offset;
+                const bottom = top + p.h;
+                if (top < 0) {
+                    offset = @max(0, p.y - 8);
+                    c.scroll.put(c.gpa, id, offset) catch {};
+                } else if (bottom > view_h) {
+                    offset = p.y + p.h - view_h + 8;
+                    c.scroll.put(c.gpa, id, offset) catch {};
+                }
+            }
+        }
     }
     // Which way the gallery goes: more is asked for in that direction.
     const going_down = offset >= s.last_offset;
@@ -125,8 +142,30 @@ fn viewGrid(s: *app.State, c: *ui.Context) void {
         return;
     }
 
-    // The room the pictures take, so the grid scrolls.
-    _ = c.leaf(.{ .width = .fill, .height = .{ .px = s.layout.height } }, .none, null);
+    // The room the pictures take, so the grid scrolls. Its empty ground
+    // is where the hand draws a marquee: pressed on nothing, it gathers
+    // every picture the box comes to hold.
+    const room = ui.div(c).wFull().h(s.layout.height).control();
+    defer room.end();
+    _ = room.interaction();
+    {
+        const gx = c.input.mouse.x - grid_x;
+        const gy = c.input.mouse.y - grid_y + offset;
+        const in_room = gx >= 0 and gx < view_w and gy >= 0 and gy < s.layout.height;
+        if (c.input.pressed and in_room and tileAt(s, gx, gy) == null) {
+            s.select.marquee_from = .{ .x = gx, .y = gy };
+            s.select.marquee = .{ .x = gx, .y = gy, .w = 0, .h = 0 };
+            c.changed = true;
+        } else if (s.select.marquee != null and c.input.released) {
+            applyMarquee(s);
+            s.select.marquee = null;
+            c.changed = true;
+        } else if (s.select.marquee != null and c.input.down) {
+            s.select.marqueeTo(gx, gy);
+        } else if (s.select.marquee != null) {
+            s.select.marquee = null;
+        }
+    }
 
     // The room the thumbnails are asked for: further than the pictures
     // are built, so they are ready by the time they come into view.
@@ -168,15 +207,241 @@ fn viewGrid(s: *app.State, c: *ui.Context) void {
             };
         }
         s.built += 1;
-        viewPicture(s, c, pic, place);
+        viewPicture(s, c, pic, place, i);
     }
+
+    // The box the hand is drawing, over the pictures it is gathering.
+    if (s.select.marquee) |mq| {
+        const k = theme.colors(s.dark);
+        const mq_box = ui.div(c).absolute().offset(mq.x, mq.y).w(mq.w).h(mq.h)
+            .bg(k.accent.alpha(0.08));
+        defer mq_box.end();
+        const n = c.node(c.stack.items[c.stack.items.len - 1]);
+        n.style.border = k.accent;
+    }
+
     // While the pictures on their way are still being decoded, another
     // frame is wanted as soon as each one lands -- the view is a
     // function of the state, and the state is still arriving.
     if (waiting > 0) c.animationFrame();
 }
 
-fn viewPicture(s: *app.State, c: *ui.Context, pic: *model.Picture, place: masonry.Placement) void {
+/// The picture the grid's coordinates fall on, or null on the ground.
+fn tileAt(s: *app.State, gx: f32, gy: f32) ?usize {
+    if (s.layout.placements.len != s.shown.len) return null;
+    for (s.layout.placements, 0..) |p, i| {
+        if (gx >= p.x and gx < p.x + p.w and gy >= p.y and gy < p.y + p.h) return i;
+    }
+    return null;
+}
+
+/// The marquee has said its word: exactly what the box holds is chosen.
+fn applyMarquee(s: *app.State) void {
+    const box = s.select.marquee orelse return;
+    if (s.layout.placements.len != s.shown.len) return;
+    var hits: std.ArrayList([]const u8) = .empty;
+    defer hits.deinit(s.gpa);
+    var last: ?usize = null;
+    for (s.layout.placements, 0..) |p, i| {
+        const overlap = p.x < box.x + box.w and box.x < p.x + p.w and
+            p.y < box.y + box.h and box.y < p.y + p.h;
+        if (!overlap) continue;
+        hits.append(s.gpa, s.shown[i].path) catch {};
+        last = i;
+    }
+    s.select.onlyPaths(hits.items);
+    if (last) |i| s.select.cursor = i;
+}
+
+/// What the bulk keys act on: the choice when there is one, the cursor's
+/// picture otherwise. Made in the frame's arena, gone with the frame.
+fn targets(s: *app.State, c: *ui.Context) []*model.Picture {
+    if (s.select.count() > 0) return s.select.chosen(c.alloc(), s.shown) catch &.{};
+    if (s.select.cursor) |i| {
+        if (i < s.shown.len) {
+            const one = c.alloc().alloc(*model.Picture, 1) catch return &.{};
+            one[0] = s.shown[i];
+            return one[0..1];
+        }
+    }
+    return &.{};
+}
+
+/// The grid's keys, when the gallery holds the reader's attention: the
+/// cursor walks, the view follows it, a shift extends the choice, and
+/// the bulk's keys act on what stands under all of it.
+fn gridKeys(s: *app.State, c: *ui.Context) void {
+    const shown = s.shown;
+    if (shown.len == 0) return;
+
+    // -- walking --
+    if (c.input.key) |k| {
+        const d: ?Walk = switch (k) {
+            .left => .left,
+            .right => .right,
+            .up => .up,
+            .down => .down,
+            else => null,
+        };
+        if (d) |dir| {
+            stepCursor(s, c, dir);
+        } else switch (k) {
+            .home => jumpCursor(s, c, 0),
+            .end => jumpCursor(s, c, shown.len - 1),
+            .page_up => pageCursor(s, c, .up),
+            .page_down => pageCursor(s, c, .down),
+            .enter => {
+                // The cursor's picture, large: the same as opening it.
+                const t = targets(s, c);
+                if (t.len > 0) {
+                    large.show(s, t[0]);
+                    for (s.shown, 0..) |p, j| {
+                        if (p == t[0]) s.select.cursor = j;
+                    }
+                }
+            },
+            .delete, .backspace => {
+                const t = targets(s, c);
+                if (t.len > 0) dialogs.askTrash(s, t);
+            },
+            .f2 => {
+                // Renaming is a one-picture affair: only with a single
+                // target does the box come up.
+                const t = targets(s, c);
+                if (t.len == 1) {
+                    s.renaming = t[0];
+                    s.rename_open = true;
+                    s.rename_field.set(t[0].name);
+                    s.rename_error = false;
+                }
+            },
+            else => {},
+        }
+    }
+
+    // -- the bulk's combinations --
+    if (c.shortcut(.{ .key = 'a', .ctrl = true })) {
+        s.select.all(shown);
+        c.changed = true;
+    }
+    if (c.shortcut(.{ .key = 'c', .ctrl = true })) {
+        const t = targets(s, c);
+        if (t.len > 0) {
+            const paths = c.alloc().alloc([]const u8, t.len) catch return;
+            for (t, 0..) |p, i| paths[i] = p.path;
+            ops.copyFilesToClipboard(s.gpa, paths);
+            s.toast(.success, i18n.strings(s.lang).copied);
+        }
+    }
+    if (c.shortcut(.{ .key = 'r', .ctrl = true, .shift = true })) {
+        const t = targets(s, c);
+        if (t.len > 0) ops.reveal(t[0].path);
+    }
+    if (c.shortcut(.{ .key = ui.Shortcut.enter, .ctrl = true })) {
+        const t = targets(s, c);
+        for (t) |p| _ = ops.open(p.path);
+    }
+
+    // -- the keys that come as characters --
+    // A rate for the choice, or the cursor; `t` opens the picture large
+    // and starts a tag there, where the typing belongs.
+    for (c.input.chars) |ch| {
+        if (ch >= '0' and ch <= '5') {
+            const t = targets(s, c);
+            if (t.len > 0) large.rateBatch(s, t, @intCast(ch - '0'));
+        } else if (ch == 't' or ch == 'T') {
+            const t = targets(s, c);
+            if (t.len >= 1 and editable(t[0].name)) {
+                large.show(s, t[0]);
+                s.tag_editing = true;
+                s.tag_field.clear();
+            }
+        }
+    }
+}
+
+/// Whether a file's name can carry stars and tags in its own bytes --
+/// the same rule the large view's panel goes by.
+const editable = large.editable;
+
+/// The cursor walks one place, the view follows, and a shift extends
+/// the choice from the anchor. No cursor yet: the walk starts one.
+fn stepCursor(s: *app.State, c: *ui.Context, dir: Walk) void {
+    const to = neighborOf(s, s.select.cursor, dir) orelse return;
+    moveCursorTo(s, c, to);
+}
+
+/// The cursor to an index, whole: Home, End, the walk's own first step.
+fn jumpCursor(s: *app.State, c: *ui.Context, to: usize) void {
+    moveCursorTo(s, c, to);
+}
+
+fn moveCursorTo(s: *app.State, c: *ui.Context, to: usize) void {
+    if (to >= s.shown.len) return;
+    s.select.cursor = to;
+    if (c.input.shift) s.select.range(s.shown, to);
+    c.changed = true;
+}
+
+/// The same column one viewport away: the page keys keep the reader's
+/// place across the screenful.
+fn pageCursor(s: *app.State, c: *ui.Context, dir: Walk) void {
+    const cur = s.select.cursor orelse {
+        moveCursorTo(s, c, if (dir == .down) 0 else s.shown.len - 1);
+        return;
+    };
+    if (cur >= s.layout.placements.len) return;
+    const here = s.layout.placements[cur];
+    const page = @max(1.0, c.size.h);
+    var best: ?usize = null;
+    for (s.layout.placements, 0..) |p, i| {
+        if (p.x != here.x) continue;
+        const far = if (dir == .down) p.y >= here.y + page else p.y + p.h <= here.y - page + p.h;
+        if (!far) continue;
+        if (best) |b| {
+            const b_y = s.layout.placements[b].y;
+            if (if (dir == .down) p.y < b_y else p.y > b_y) best = i;
+        } else best = i;
+    }
+    moveCursorTo(s, c, best orelse if (dir == .down) s.shown.len - 1 else 0);
+}
+
+/// The place next door: along the same column for up and down, across
+/// to the nearest column for left and right, at the height nearest the
+/// one the cursor is at. Nothing next door: the cursor stays.
+fn neighborOf(s: *app.State, cur: ?usize, dir: Walk) ?usize {
+    const n = s.shown.len;
+    if (n == 0 or s.layout.placements.len != n) return null;
+    const at = cur orelse return 0;
+    if (at >= n) return 0;
+    const here = s.layout.placements[at];
+    var best: ?usize = null;
+    var best_d2: f32 = 1e18;
+    for (s.layout.placements, 0..) |p, i| {
+        if (i == at) continue;
+        switch (dir) {
+            .up, .down => {
+                if (p.x != here.x) continue;
+                if (dir == .up and p.y + p.h > here.y + 1) continue;
+                if (dir == .down and p.y < here.y + here.h - 1) continue;
+            },
+            .left, .right => {
+                if (dir == .left and p.x >= here.x) continue;
+                if (dir == .right and p.x <= here.x) continue;
+            },
+        }
+        const dx = p.x + p.w / 2 - (here.x + here.w / 2);
+        const dy = p.y + p.h / 2 - (here.y + here.h / 2);
+        const d2 = dx * dx + dy * dy;
+        if (d2 < best_d2) {
+            best_d2 = d2;
+            best = i;
+        }
+    }
+    return best;
+}
+
+fn viewPicture(s: *app.State, c: *ui.Context, pic: *model.Picture, place: masonry.Placement, index: usize) void {
     const th = c.theme;
     const k = theme.colors(s.dark);
     const tr = i18n.strings(s.lang);
@@ -186,10 +451,28 @@ fn viewPicture(s: *app.State, c: *ui.Context, pic: *model.Picture, place: masonr
     defer box.end();
     const inter = box.interaction();
     if (inter.double_clicked) {
+        // A double click opens it large, and the cursor goes with it: the
+        // escape back to the wall lands on the tile it came from.
+        s.select.cursor = index;
         large.show(s, pic);
         c.changed = true;
         return;
     }
+    // A single click speaks to the choice: plain, it chooses this one;
+    // with the adding key it joins or leaves; with shift it grows the
+    // range from the anchor.
+    if (inter.clicked) {
+        if (c.input.adding()) {
+            s.select.toggle(pic, index);
+        } else if (c.input.shift) {
+            s.select.range(s.shown, index);
+        } else {
+            s.select.only(pic, index);
+        }
+        c.changed = true;
+    }
+    const chosen = s.select.has(pic.path);
+    const is_cursor = s.select.cursor != null and s.select.cursor.? == index;
     // The pointer on the picture, decided here from the last layout's
     // rect: nanoui's hot tracking answers a frame late through boxes
     // that may not be what we mean.
@@ -226,6 +509,28 @@ fn viewPicture(s: *app.State, c: *ui.Context, pic: *model.Picture, place: masonr
                 ui.text(c, tr.decode_failed, .{ .size = 12, .color = k.secondary });
             }
         }
+    }
+
+    // Culling, seen as the design says it: while a choice stands, the
+    // tiles the reader has not chosen stand back, so what is picked
+    // reads at a glance. The setting can hold the wall still.
+    if (s.dim_unselected and s.select.count() > 0 and !chosen) {
+        _ = c.leaf(.{ .width = .fill, .height = .fill, .background = k.page.alpha(0.55) }, .none, null);
+    }
+    // The choice's own ring, round the tile: the one saturated mark the
+    // wall makes, in the theme's inverted accent.
+    if (chosen) {
+        const n = c.node(c.stack.items[c.stack.items.len - 1]);
+        n.style.border = k.accent;
+    }
+    // The keyboard's place, a hairline in from the tile's edge: a mark
+    // of its own, so the cursor and the choice can stand on one tile
+    // and still be told apart.
+    if (is_cursor and !chosen) {
+        const inner = ui.div(c).absolute().offset(3, 3).w(place.w - 6).h(place.h - 6);
+        defer inner.end();
+        const n = c.node(c.stack.items[c.stack.items.len - 1]);
+        n.style.border = k.secondary;
     }
 
     // The menu's corner, on hover: a chip that reads on any photograph.
