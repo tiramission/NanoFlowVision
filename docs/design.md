@@ -14,5 +14,4 @@
   [redesign/02-ux.md](redesign/02-ux.md) §5。
 
 本文曾描述的琥珀设计（nanomon 移植的暖炭/奶油/琥珀）已被上述方案整体取代，
-旧文档的规格不再与代码对应，故不再保留；历史上的样子见
-[redesign/before/](redesign/before/) 与 `git log`。
+旧文档的规格不再与代码对应，故不再保留；历史上的样子见 `git log`。
