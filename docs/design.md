@@ -1,4 +1,9 @@
-# NanoFlowVision 设计系统
+# NanoFlowVision 设计系统（现行实现）
+
+> **注意：这套设计正在被 [redesign/](redesign/README.md) 取代。**
+> 新方案不继承本文的任何 hex、布局与组件规格（中性无色、反相选中、三表面）。
+> 本文记录的是**现在还跑在屏幕上的样子**；某一段在代码里落地后，就删掉这里的对应段，
+> 全部落地后这一页只剩一个指针。两份文档不允许对同一件事给出两种说法。
 
 界面的设计语言**仿照 nanomon**（justrach/nanomon，nanoui 同作者的参考应用，MIT）：
 Harness 的 Codegraff 色板——**暖炭或奶油底、琥珀选中、暖白文字**，文字用 Geist、
