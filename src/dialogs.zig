@@ -13,6 +13,21 @@ const model = @import("model.zig");
 const ops = @import("ops.zig");
 const shell = @import("shell.zig");
 
+/// The keyboard's map, one line to a key: what the whole interface
+/// answers, said in one place. Escape, the dimming or the button
+/// takes it away.
+pub fn keysDialog(s: *app.State, c: *ui.Context) void {
+    const tr = i18n.strings(s.lang);
+    const d = kit.dialog(c, "keys", &s.keys_open, .{
+        .title = tr.keys_title,
+        .ok = "",
+        .cancel = "",
+        .width = 520,
+    }) orelse return;
+    _ = d.end();
+    ui.text(c, tr.keys_map, .{ .size = 12, .mono = true, .color = c.theme.muted, .wrap = true });
+}
+
 /// Asks for the bin: one picture goes at once; several wait for the
 /// word, and the confirmation stands over the folder they belong to,
 /// which cannot change while it does.

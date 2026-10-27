@@ -8,6 +8,7 @@ const ui = nanoui.ui;
 const app = @import("app.zig");
 const exif = @import("exif.zig");
 const tests_mod = @import("tests.zig");
+const shell = @import("shell.zig");
 const thumbs = @import("thumbs.zig");
 
 comptime {
@@ -320,7 +321,7 @@ test "another folder can become the root" {
 
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
-    state.reroot(second);
+    shell.reroot(state, second);
 
     // The tree is rooted at it, the root folder is shown, and its
     // picture is the gallery's own.

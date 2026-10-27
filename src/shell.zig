@@ -192,6 +192,75 @@ fn visibleFolders(gpa: std.mem.Allocator, folder: *model.Folder, out: *std.Array
     }
 }
 
+/// The folder just opened joins the way the reader came: everything
+/// ahead of the present goes, the folder goes on the end. The way
+/// back and forward walks this line.
+pub fn noteHistory(s: *app.State) void {
+    if (s.nav_lock) return;
+    const folder = s.current orelse return;
+    while (s.history.items.len > s.history_at + 1) {
+        if (s.history.pop()) |old| s.gpa.free(old);
+    }
+    if (s.history.items.len > 0) {
+        const cur = s.history.items[s.history_at];
+        if (std.mem.eql(u8, cur, folder.path)) return;
+    }
+    const owned = s.gpa.dupe(u8, folder.path) catch return;
+    s.history.append(s.gpa, owned) catch s.gpa.free(owned);
+    s.history_at = s.history.items.len - 1;
+    // The line is not a bottomless well: twenty folders back is a
+    // memory no one asks for.
+    if (s.history.items.len > 20) {
+        const old = s.history.orderedRemove(0);
+        s.gpa.free(old);
+        s.history_at -= 1;
+    }
+}
+
+/// The way back, or forward, one folder: a walk through the reader's
+/// own recent past. A folder that went away is skipped over.
+pub fn historyStep(s: *app.State, step: i32) void {
+    if (s.history.items.len == 0) return;
+    const at_i: i64 = @as(i64, @intCast(s.history_at)) + step;
+    if (at_i < 0 or at_i >= @as(i64, @intCast(s.history.items.len))) return;
+    s.history_at = @intCast(at_i);
+    var found: ?*model.Folder = null;
+    findChild(s, &s.tree, s.history.items[s.history_at], &found);
+    const folder = found orelse return;
+    s.nav_lock = true;
+    defer s.nav_lock = false;
+    s.open(folder);
+}
+
+
+/// Makes another folder the root: the tree is read from it anew, the
+/// gallery shows what it holds, and the watcher moves with it.
+pub fn reroot(s: *app.State, path: []const u8) void {
+    const tree = &s.tree;
+    if (std.mem.eql(u8, tree.path, path)) return;
+    for (tree.children) |*child| child.deinit(s.gpa);
+    s.gpa.free(tree.children);
+    for (tree.pictures) |*p| p.deinit(s.gpa);
+    s.gpa.free(tree.pictures);
+    tree.children = &.{};
+    tree.pictures = &.{};
+    tree.loaded = false;
+    tree.expanded = false;
+    tree.depth = 0;
+    const new_path = s.gpa.dupe(u8, path) catch return;
+    const new_name = s.gpa.dupe(u8, model.nameOf(path)) catch {
+        s.gpa.free(new_path);
+        return;
+    };
+    s.gpa.free(tree.path);
+    s.gpa.free(tree.name);
+    tree.path = new_path;
+    tree.name = new_name;
+    s.open(tree);
+    s.saveSettings();
+}
+
+
 /// A rail section's name.
 fn sideSection(c: *ui.Context, k: theme.Colors, name: []const u8) void {
     const d = ui.div(c).row().wFull().px(8).pt(14).pb(4);
@@ -339,6 +408,40 @@ fn controls(s: *app.State, c: *ui.Context) void {
         }
         s.orderChanged();
     }
+
+    // The star filter: what the wall keeps, said as a chip when it is
+    // on, an icon when it is not. The menu holds the steps and the way
+    // back; picking one re-sorts nothing -- it only decides who waits
+    // outside.
+    const flt = ui.button(
+        c,
+        if (s.filter_stars > 0) i18n.filterMinStars(c.alloc(), s.lang, s.filter_stars) else "",
+        .{ .variant = .ghost, .size = 13, .icon = if (s.filter_stars > 0) "" else "star.fill" },
+    );
+    if (flt.rect) |r| s.filter_at = r;
+    if (flt.clicked) {
+        s.filter_open = true;
+        c.changed = true;
+    }
+    var filter_items = [_]kit.MenuItem{
+        .{ .label = tr.clear_filter, .checked = s.filter_stars == 0 },
+        .{ .separator = true },
+        .{ .label = "★", .checked = s.filter_stars == 1 },
+        .{ .label = "★★", .checked = s.filter_stars == 2 },
+        .{ .label = "★★★", .checked = s.filter_stars == 3 },
+        .{ .label = "★★★★", .checked = s.filter_stars == 4 },
+        .{ .label = "★★★★★", .checked = s.filter_stars == 5 },
+    };
+    if (kit.menu(c, "filter-menu", &s.filter_open, s.filter_at, &filter_items, .{})) |picked| {
+        // The separator holds a place in the count: the steps answer one
+        // below their own index, and only the clear is where it says.
+        const next: usize = if (picked == 0) 0 else picked - 1;
+        if (next != s.filter_stars) {
+            s.filter_stars = next;
+            s.orderChanged();
+            c.changed = true;
+        }
+    }
 }
 
 /// The way here, as crumbs: the folders from the root down, the last one
@@ -410,7 +513,7 @@ pub fn goUp(s: *app.State) void {
 }
 
 /// Finds the folder at `path` in the tree, the roots down.
-fn findChild(s: *app.State, from: *model.Folder, path: []const u8, found: *?*model.Folder) void {
+pub fn findChild(s: *app.State, from: *model.Folder, path: []const u8, found: *?*model.Folder) void {
     for (from.children) |*child| {
         if (std.mem.eql(u8, child.path, path)) {
             found.* = child;

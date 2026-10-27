@@ -89,6 +89,13 @@ pub const Strings = struct {
     trash_selected: []const u8,
     /// The large view's panel of facts, folded and open.
     info: []const u8,
+    /// The star filter, and its way out.
+    filter_min_stars: []const u8,
+    clear_filter: []const u8,
+    filter_empty: []const u8,
+    /// The keyboard's map, said in one piece, one line to a key.
+    keys_title: []const u8,
+    keys_map: []const u8,
 };
 
 const en: Strings = .{
@@ -159,6 +166,11 @@ const en: Strings = .{
     .trash_confirm_body = "First {s} · last {s}. They can be restored from the system bin.",
     .trash_selected = "Move to Recycle Bin",
     .info = "Info",
+    .filter_min_stars = "★≥{d}",
+    .clear_filter = "Clear filter",
+    .filter_empty = "Nothing rated ★≥{d}",
+    .keys_title = "Keys",
+    .keys_map = "Ctrl+O  Open folder\nCtrl+,  Settings\nCtrl+D  Appearance\nCtrl+↑  Up one folder\nF5  Rescan\nTab  Tree ⇄ grid\nArrows, Home, End, PgUp/PgDn  Walk the wall\nSpace / Enter  Open large\n0–5  Rate\nBackspace  Bin (asks when many)\nF2  Rename\nCtrl+C  Copy\nCtrl+Shift+R  Reveal\nCtrl+Enter  Open with system\nCtrl+A  Select all\nCtrl+V  Paste\nEsc  Let go\n— large view —\nArrows  Previous / next\nZ  Fit ⇄ 1:1\nI  Fold the facts\nT  Tag\nWheel over the strip  Step",
 };
 
 const zh: Strings = .{
@@ -229,6 +241,11 @@ const zh: Strings = .{
     .trash_confirm_body = "首张 {s} · 末张 {s}。可在系统回收站中恢复。",
     .trash_selected = "移到回收站",
     .info = "信息",
+    .filter_min_stars = "★≥{d}",
+    .clear_filter = "清除筛选",
+    .filter_empty = "没有 ★≥{d} 的图片",
+    .keys_title = "键盘",
+    .keys_map = "Ctrl+O  打开目录\nCtrl+,  设置\nCtrl+D  外观\nCtrl+↑  上级目录\nF5  重新扫描\nTab  树 ⇄ 网格\n方向键、Home、End、PgUp/PgDn  走网格\nSpace / Enter  打开大图\n0–5  评分\nBackspace  回收站（多张先问）\nF2  重命名\nCtrl+C  复制\nCtrl+Shift+R  在文件夹中显示\nCtrl+Enter  用系统打开\nCtrl+A  全选\nCtrl+V  粘贴\nEsc  放开\n— 大图 —\n方向键  上一张 / 下一张\nZ  适应 ⇄ 1:1\nI  收起信息\nT  标签\n条上滚轮  逐张",
 };
 
 /// The strings for `lang`.
@@ -311,6 +328,22 @@ pub fn noMatches(alloc: std.mem.Allocator, lang: Lang, query: []const u8) []cons
     };
 }
 
+/// "★≥{d}", the filter's own chip.
+pub fn filterMinStars(alloc: std.mem.Allocator, lang: Lang, stars: usize) []const u8 {
+    return switch (lang) {
+        .en => std.fmt.allocPrint(alloc, en.filter_min_stars, .{stars}) catch "…",
+        .zh => std.fmt.allocPrint(alloc, zh.filter_min_stars, .{stars}) catch "…",
+    };
+}
+
+/// "Nothing rated ★≥{d}", the empty wall's own words.
+pub fn filterEmpty(alloc: std.mem.Allocator, lang: Lang, stars: usize) []const u8 {
+    return switch (lang) {
+        .en => std.fmt.allocPrint(alloc, en.filter_empty, .{stars}) catch "…",
+        .zh => std.fmt.allocPrint(alloc, zh.filter_empty, .{stars}) catch "…",
+    };
+}
+
 /// "{d} of {d} selected", the status bar's line while a choice stands.
 pub fn selectedOf(alloc: std.mem.Allocator, lang: Lang, chosen: usize, total: usize) []const u8 {
     return switch (lang) {
@@ -372,6 +405,9 @@ test "both languages carry every string, non-empty" {
             s.clear_selection, s.dim_unselected,
             s.trash_confirm_title, s.trash_confirm_body,
             s.trash_selected,   s.info,
+            s.filter_min_stars, s.clear_filter,
+            s.filter_empty,     s.keys_title,
+            s.keys_map,
         };
         for (all) |v| try std.testing.expect(v.len > 0);
     }

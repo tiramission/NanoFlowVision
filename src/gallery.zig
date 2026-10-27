@@ -131,12 +131,18 @@ fn viewGrid(s: *app.State, c: *ui.Context) void {
         if (pictures.len == 0) {
             ui.label(c, tr.no_pictures);
         } else {
-            ui.text(c, i18n.noMatches(c.alloc(), s.lang, s.search.text()), .{ .size = 13, .color = th.muted });
-            // The way out, at hand: one click undoes the filter, and the
-            // wall comes back. An empty state that only describes itself
-            // would leave the reader to find the search box again.
-            if (kit.button(c, tr.clear_search, .{ .size = .sm }).clicked) {
+            // What emptied the wall, said its own way: the filter's
+            // verdict, or the search's.
+            if (s.filter_stars > 0) {
+                ui.text(c, i18n.filterEmpty(c.alloc(), s.lang, s.filter_stars), .{ .size = 13, .color = th.muted });
+            } else {
+                ui.text(c, i18n.noMatches(c.alloc(), s.lang, s.search.text()), .{ .size = 13, .color = th.muted });
+            }
+            // The way out, at hand: one click undoes whatever stands
+            // between the reader and the wall.
+            if (kit.button(c, if (s.filter_stars > 0) tr.clear_filter else tr.clear_search, .{ .size = .sm }).clicked) {
                 s.search.clear();
+                s.filter_stars = 0;
                 s.orderChanged();
                 c.changed = true;
             }

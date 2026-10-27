@@ -116,11 +116,9 @@ pub const State = struct {
     reroot_pending: ?[]u8 = null,
     /// The folder the settings are kept in, owned.
     settings_dir: ?[]u8 = null,
-    /// A snapshot or a script run: its window never sat anywhere, so the
-    /// way it sat is not worth remembering.
+    /// A snapshot or a script run: its window's seat is not remembered.
     snapshot_run: bool = false,
-    /// The language the interface speaks, and whether the settings panel
-    /// is open.
+    /// The interface's language, and whether the settings panel is open.
     lang: i18n.Lang = .en,
     settings_open: bool = false,
     /// How the room is lit, how big the pictures are, and whether the
@@ -130,8 +128,7 @@ pub const State = struct {
     reduce_motion: bool = false,
     /// Whether the unchosen tiles stand back while a choice stands.
     dim_unselected: bool = true,
-    /// The rename box said a name the folder already has: the box stays
-    /// up, and says so beside the field.
+    /// The rename said a taken name: the box stays and says so.
     rename_error: bool = false,
     /// How wide the navigation column is, 200 to 360.
     rail_w: f32 = 240,
@@ -141,11 +138,24 @@ pub const State = struct {
     /// When the folder was last listed: the status bar's "3s ago".
     /// Negative until the first frame knows what time it is.
     listed_at: f64 = -1,
-    /// The command bar's two menus, and the buttons they hang from.
+    /// The command bar's menus, and the buttons they hang from.
     sort_open: bool = false,
     density_open: bool = false,
+    filter_open: bool = false,
     sort_at: ui.Rect = .{},
     density_at: ui.Rect = .{},
+    filter_at: ui.Rect = .{},
+    /// The star filter: 0 says everything; N says N stars and up. The
+    /// folders the reader came along, newest last, and where in it the
+    /// view stands: the way back and forward. The keyboard's map is up
+    /// while `keys_open`.
+    filter_stars: usize = 0,
+    history: std.ArrayList([]u8) = .empty,
+    history_at: usize = 0,
+    keys_open: bool = false,
+    /// The history is walking itself: an open() from the back and
+    /// forward keys does not join the list it is reading.
+    nav_lock: bool = false,
     /// What the operations said back, drawn last in the frame.
     toaster: kit.Toaster,
     /// The pictures the reader has chosen, keyed by their paths: a click
@@ -165,8 +175,7 @@ pub const State = struct {
     /// carries what is drawn there by the clock.
     zoom: ?f32 = null,
     zoom_target: ?f32 = null,
-    /// Whether the large view's panel of facts is open: `i` folds it to
-    /// a single line and back.
+    /// Whether the large view's panel of facts is open.
     info_open: bool = true,
     /// The filmstrip's cells this frame, for the tests that click them.
     filmstrip_at: std.ArrayList(ui.Rect) = .empty,
@@ -217,6 +226,8 @@ pub const State = struct {
         if (s.large_key) |key| s.gpa.free(key);
         if (s.reroot_pending) |path| s.gpa.free(path);
         s.keep.deinit(s.gpa);
+        for (s.history.items) |p| s.gpa.free(p);
+        s.history.deinit(s.gpa);
         s.toaster.deinit();
         s.filmstrip_at.deinit(s.gpa);
         s.gpa.destroy(s);
@@ -342,10 +353,11 @@ pub const State = struct {
         s.laid_out_for = 0;
         s.last_offset = 0;
         s.scroll_to_top = true;
-        // A new folder starts unfiltered and unchosen; the sort stays as
-        // it was.
+        // A new folder starts unfiltered and unchosen; the sort and the
+        // star filter stay as they were.
         s.search.clear();
         s.select.clear();
+        shell.noteHistory(s);
         s.listed_at = -1;
         s.orderChanged();
         // Every picture's size is read first, so the layout is made once and
@@ -354,33 +366,6 @@ pub const State = struct {
         // The folder is watched from now on: what changes on the disk
         // arrives by itself.
         s.watcher.start(folder.path);
-    }
-
-    /// Makes another folder the root: the tree is read from it anew, the
-    /// gallery shows what it holds, and the watcher moves with it.
-    pub fn reroot(s: *State, path: []const u8) void {
-        const tree = &s.tree;
-        if (std.mem.eql(u8, tree.path, path)) return;
-        for (tree.children) |*child| child.deinit(s.gpa);
-        s.gpa.free(tree.children);
-        for (tree.pictures) |*p| p.deinit(s.gpa);
-        s.gpa.free(tree.pictures);
-        tree.children = &.{};
-        tree.pictures = &.{};
-        tree.loaded = false;
-        tree.expanded = false;
-        tree.depth = 0;
-        const new_path = s.gpa.dupe(u8, path) catch return;
-        const new_name = s.gpa.dupe(u8, model.nameOf(path)) catch {
-            s.gpa.free(new_path);
-            return;
-        };
-        s.gpa.free(tree.path);
-        s.gpa.free(tree.name);
-        tree.path = new_path;
-        tree.name = new_name;
-        s.open(tree);
-        s.saveSettings();
     }
 
     /// The sort or the search changed: the order follows, from the top,
@@ -464,6 +449,12 @@ pub const State = struct {
         var list: std.ArrayList(*model.Picture) = .empty;
         defer list.deinit(s.gpa);
         for (folder.pictures) |*pic| {
+            if (s.filter_stars > 0) {
+                // The filter says how many stars a picture carries: what
+                // is not measured yet says nothing, and waits outside.
+                const said = s.shared.measuredOf(pic.path) orelse continue;
+                if (said.rating < @as(i8, @intCast(s.filter_stars))) continue;
+            }
             if (model.matchesFold(pic.name, query)) {
                 list.append(s.gpa, pic) catch return;
             }
@@ -538,6 +529,15 @@ pub const State = struct {
         if (s.reduce_motion) c.reduced_motion = true;
         // Dark or light, wherever the eye is.
         if (c.shortcut(.{ .key = 'd', .ctrl = true })) s.toggleDark();
+        // The way back and forward along the folders just left, and the
+        // keyboard's own map, one keypress away.
+        if (c.shortcut(.{ .key = ui.Shortcut.left, .alt = true })) shell.historyStep(s, -1);
+        if (c.shortcut(.{ .key = ui.Shortcut.right, .alt = true })) shell.historyStep(s, 1);
+        if (c.shortcut(.{ .key = '/', .ctrl = true })) {
+            s.keys_open = true;
+            c.changed = true;
+        }
+        if (s.keys_open) dialogs.keysDialog(s, c);
         // The escape that falls all the way down the layers: those below
         // take it first, and when nothing is up it lets go of the choice.
         // Only looked at here, never taken -- taking it would steal it
@@ -564,7 +564,7 @@ pub const State = struct {
         // has no business being listed again.
         if (s.reroot_pending) |path| {
             s.reroot_pending = null;
-            s.reroot(path);
+            shell.reroot(s, path);
             s.gpa.free(path);
         }
         if (s.relist_pending) {

@@ -10,6 +10,7 @@ const ui = nanoui.ui;
 const app = @import("app.zig");
 const exif = @import("exif.zig");
 const ops = @import("ops.zig");
+const xmp = @import("xmp.zig");
 const tests_mod = @import("tests.zig");
 
 /// Where the middle of tile `i` stands on the screen right now.
@@ -290,4 +291,121 @@ test "the keyboard walks the wall: along the column and across it" {
     t.key(.end);
     t.settle(0.1);
     try std.testing.expectEqual(@as(usize, 11), state.select.cursor.?);
+}
+
+test "the star filter keeps the rated and says how to let go" {
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    // Three photographs with their stars already in the files.
+    const f = exif.Fixture.build(.little);
+    const jpeg = try tests_mod.exifJpeg(gpa, &f);
+    defer gpa.free(jpeg);
+    const stars = [_]i8{ 5, 3, 1 };
+    const names = [_][]const u8{ "a.jpg", "b.jpg", "c.jpg" };
+    const cwd = try std.process.currentPathAlloc(std.testing.io, gpa);
+    defer gpa.free(cwd);
+    const dir_path = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/tmp/{s}", .{ cwd, tmp.sub_path });
+    defer gpa.free(dir_path);
+    for (names, 0..) |name, i| {
+        try tmp.dir.writeFile(std.testing.io, .{ .sub_path = name, .data = jpeg[0..] });
+        var m: exif.Meta = .{};
+        m.rating = stars[i];
+        const fp = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, name });
+        defer gpa.free(fp);
+        try xmp.rewriteFile(gpa, std.testing.io, fp, &m);
+    }
+    const path = dir_path;
+
+    const state = try app.State.create(gpa, std.testing.io, path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 900 });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+
+    // Four stars and up: one stands, and the chip says the filter's name.
+    t.frame();
+    const btn = state.filter_at;
+    t.click(btn.x + btn.w / 2, btn.y + btn.h / 2);
+    t.settle(0.2);
+    try t.clickText("★★★★");
+    t.settle(0.3);
+    try std.testing.expectEqual(@as(usize, 1), state.shown.len);
+    try std.testing.expect(t.hasText("1 of 3 pictures"));
+
+    // Two stars: one more comes back.
+    t.click(btn.x + btn.w / 2, btn.y + btn.h / 2);
+    t.settle(0.2);
+    try t.clickText("★★");
+    t.settle(0.3);
+    try std.testing.expectEqual(@as(usize, 2), state.shown.len);
+
+    // The top step: one picture carries five stars, and the chip says
+    // what the wall keeps.
+    t.click(btn.x + btn.w / 2, btn.y + btn.h / 2);
+    t.settle(0.2);
+    try t.clickText("★★★★★");
+    t.settle(0.3);
+    try std.testing.expectEqual(@as(usize, 1), state.shown.len);
+
+    // And the way back, from the same menu.
+    t.click(btn.x + btn.w / 2, btn.y + btn.h / 2);
+    t.settle(0.2);
+    try t.clickText("Clear filter");
+    t.settle(0.3);
+    try std.testing.expectEqual(@as(usize, 3), state.shown.len);
+}
+
+test "the way back walks the folders just left" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSample(gpa);
+    defer sample.deinit(gpa);
+    try sample.tmp.dir.createDirPath(std.testing.io, "album");
+    var red = [_]u8{ 0, 0, 255, 255 };
+    const png = try ui.png.encode(gpa, .{ .bytes = red[0..], .width = 1, .height = 1 });
+    defer gpa.free(png);
+    try sample.tmp.dir.writeFile(std.testing.io, .{ .sub_path = "album/two.png", .data = png });
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 900 });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+
+    // Into the album, and back with the key: the root again.
+    try t.clickText("album");
+    t.settle(0.2);
+    try std.testing.expectEqualStrings("album", state.current.?.name);
+    _ = t.shortcut(.{ .key = ui.Shortcut.left, .alt = true });
+    t.settle(0.2);
+    try std.testing.expectEqualStrings(sample.path, state.tree.path);
+    // And forward again, the same way.
+    _ = t.shortcut(.{ .key = ui.Shortcut.right, .alt = true });
+    t.settle(0.2);
+    try std.testing.expectEqualStrings("album", state.current.?.name);
+}
+
+test "the keyboard's map stands over the page, and goes" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSample(gpa);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 900 });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+
+    _ = t.shortcut(.{ .key = '/', .ctrl = true });
+    t.settle(0.2);
+    try std.testing.expect(state.keys_open);
+    try std.testing.expect(t.hasText("Keys"));
+    try std.testing.expect(t.containsText("Ctrl+O"));
+    _ = t.shortcut(.{ .key = ui.Shortcut.escape });
+    t.settle(0.2);
+    try std.testing.expect(!state.keys_open);
 }
