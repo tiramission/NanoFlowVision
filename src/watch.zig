@@ -13,12 +13,17 @@ const app = @import("app.zig");
 extern "kernel32" fn CreateFileW(name: [*:0]const u16, access: u32, share: u32, security: ?*anyopaque, disposition: u32, flags: u32, template: ?*anyopaque) ?*anyopaque;
 extern "kernel32" fn ReadDirectoryChangesW(handle: ?*anyopaque, out: [*]u8, len: u32, subtree: i32, filter: u32, returned: ?*u32, overlapped: ?*OVERLAPPED, completion: ?*anyopaque) i32;
 extern "kernel32" fn CreateEventW(attrs: ?*anyopaque, manual: i32, initial: i32, name: ?[*:0]const u16) ?*anyopaque;
-extern "kernel32" fn WaitForMultipleObjects(handles: [*]const ?*anyopaque, count: u32, wait_all: i32, ms: u32) u32;
+// The count comes first: `DWORD WaitForMultipleObjects(DWORD nCount,
+// const HANDLE *lpHandles, BOOL bWaitAll, DWORD dwMilliseconds)`. Swapped,
+// every wait failed at once and the loop under it spun, flooding the main
+// thread with changes until the window had no frames left to draw.
+extern "kernel32" fn WaitForMultipleObjects(count: u32, handles: [*]const ?*anyopaque, wait_all: i32, ms: u32) u32;
 extern "kernel32" fn SetEvent(handle: ?*anyopaque) i32;
 extern "kernel32" fn ResetEvent(handle: ?*anyopaque) i32;
 extern "kernel32" fn WaitForSingleObject(handle: ?*anyopaque, ms: u32) u32;
 extern "kernel32" fn CloseHandle(handle: ?*anyopaque) i32;
 extern "kernel32" fn CancelIoEx(handle: ?*anyopaque, overlapped: ?*OVERLAPPED) i32;
+extern "kernel32" fn GetOverlappedResult(handle: ?*anyopaque, overlapped: ?*OVERLAPPED, transferred: *u32, wait: i32) i32;
 
 const OVERLAPPED = extern struct {
     internal: usize = 0,
@@ -114,6 +119,10 @@ pub const Watcher = struct {
         const folder = self.app.current orelse return;
         if (!std.mem.eql(u8, folder.path, watched)) return;
         self.app.relist_pending = true;
+        // A frame is asked for as well: the listing happens at the top of
+        // the next one, and an idle window draws none of its own (its
+        // frames come from the mouse and from what animates).
+        if (self.app.window) |win| win.redraw();
     }
 
     fn loop(self: *Watcher) void {
@@ -146,7 +155,13 @@ pub const Watcher = struct {
         const waits = [_]?*anyopaque{ event, stop_event };
 
         while (!self.stop.load(.acquire)) {
-            _ = ReadDirectoryChangesW(
+            // The event is the read's, not a latch: reset before asking
+            // for the next change, or the wait returns at once on the
+            // last completion and the loop spins (a spin that floods the
+            // main thread with "changed" and leaves the window with no
+            // frames to draw: no menu, no sheet, no hover).
+            _ = ResetEvent(event);
+            const asked = ReadDirectoryChangesW(
                 handle,
                 &buffer,
                 buffer.len,
@@ -156,13 +171,29 @@ pub const Watcher = struct {
                 &overlapped,
                 null,
             );
+            if (asked == 0) {
+                // The folder refused the read (gone, or unreadable): the
+                // wait would block on an event that never comes, so pause
+                // instead, and try again until a stop or the folder's end.
+                if (WaitForSingleObject(stop_event, 250) == 0) break;
+                continue;
+            }
             // The wait answers a change or the stop, whichever comes
             // first: the stop is rung on its own event, so a join never
             // waits on a thread that waits forever.
-            _ = WaitForMultipleObjects(&waits, waits.len, 0, INFINITE);
-            if (self.stop.load(.acquire)) break;
-            // One change is enough: the listing says what is there now.
-            nanoui.App.onMain(self, changed);
+            const rung = WaitForMultipleObjects(waits.len, &waits, 0, INFINITE);
+            if (self.stop.load(.acquire)) {
+                _ = CancelIoEx(handle, &overlapped);
+                break;
+            }
+            if (rung != 0) continue;
+            // A read that ended in an error is no change at all: the
+            // listing would say the same thing as last time.
+            var moved: u32 = 0;
+            if (GetOverlappedResult(handle, &overlapped, &moved, 0) != 0 and moved > 0) {
+                // One change is enough: the listing says what is there now.
+                nanoui.App.onMain(self, changed);
+            } else if (WaitForSingleObject(stop_event, 250) == 0) break;
         }
     }
 };

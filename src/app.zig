@@ -15,6 +15,7 @@ const thumbs = @import("thumbs.zig");
 const large = @import("large.zig");
 const menu = @import("menu.zig");
 const gallery = @import("gallery.zig");
+const rail = @import("rail.zig");
 const shell = @import("shell.zig");
 const settings = @import("settings.zig");
 const statusbar = @import("statusbar.zig");
@@ -127,6 +128,9 @@ pub const State = struct {
     rename_error: bool = false,
     /// How wide the navigation column is, 200 to 360.
     rail_w: f32 = 240,
+    /// Where the button that brings the rail back was drawn, while the
+    /// rail is folded away.
+    rail_toggle_at: ui.Rect = .{},
     /// The system appearance was last asked at this frame's time, for
     /// the "follow the system" setting, which is in no hurry.
     system_checked: f64 = 0,
@@ -137,9 +141,13 @@ pub const State = struct {
     sort_open: bool = false,
     density_open: bool = false,
     filter_open: bool = false,
+    /// The more menu: the choice's bulk words, the subfolders, a rescan,
+    /// another folder, the settings.
+    more_open: bool = false,
     sort_at: ui.Rect = .{},
     density_at: ui.Rect = .{},
     filter_at: ui.Rect = .{},
+    more_at: ui.Rect = .{},
     /// The star filter: 0 says everything; N says N stars and up. The
     /// folders the reader came along, newest last, and where in it the
     /// view stands: the way back and forward. The keyboard's map is up
@@ -557,23 +565,7 @@ pub const State = struct {
                 c.changed = true;
             }
         }
-        // "Follow the system" is in no hurry: once a minute is often
-        // enough, and the answer rarely changes under anyone.
-        if (s.appearance == .auto and c.time - s.system_checked >= 60) {
-            s.system_checked = c.time;
-            const lit = nanoui.isDark();
-            if (lit != s.dark) s.setDark(lit);
-        }
-        if (s.reroot_pending) |path| {
-            s.reroot_pending = null;
-            shell.reroot(s, path);
-            s.gpa.free(path);
-        }
-        if (s.relist_pending) {
-            s.relist_pending = false;
-            s.relist();
-        }
-        if (s.listed_at < 0) s.listed_at = c.time;
+        shell.frameStart(s, c);
         statusbar.title(s, c);
         if (s.large != null) {
             large.view(s, c);
@@ -581,7 +573,7 @@ pub const State = struct {
             return;
         }
         ui.row(c, .{ .width = .fill, .height = .fill });
-        if (s.rail_visible) shell.rail(s, c);
+        if (s.rail_visible) rail.view(s, c);
         ui.column(c, .{ .grow = 1, .width = .fill, .height = .fill });
         shell.commandBar(s, c);
         statusbar.progress(s, c);

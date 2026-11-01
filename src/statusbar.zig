@@ -113,8 +113,11 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             ui.text(c, count, .{ .size = 12, .color = k.secondary });
         }
         ui.text(c, "·", .{ .size = 12, .color = k.tertiary });
+        // Said through `textf`: the frame paints after the view returns, so
+        // the text must live in the frame's arena, not in a buffer here
+        // that is gone by then (a slice into it draws as so many tofu).
         var buf: [24]u8 = undefined;
-        ui.text(c, sizeText(&buf, shownBytes(s)), .{ .size = 12, .mono = true, .color = k.secondary });
+        ui.textf(c, .{ .size = 12, .mono = true, .color = k.secondary }, "{s}", .{sizeText(&buf, shownBytes(s))});
     }
     ui.spacer(c);
 
@@ -125,7 +128,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
     {
         var buf: [24]u8 = undefined;
         const since = if (s.listed_at < 0) 0 else @max(0, c.time - s.listed_at);
-        ui.text(c, agoText(&buf, since), .{ .size = 12, .mono = true, .color = k.tertiary });
+        ui.textf(c, .{ .size = 12, .mono = true, .color = k.tertiary }, "{s}", .{agoText(&buf, since)});
     }
 }
 

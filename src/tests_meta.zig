@@ -238,8 +238,8 @@ test "the settings panel switches the language, and it persists" {
     // The words around the grid are Chinese now: the rail, and the
     // count along the bottom (the sort lives in a menu, so its labels
     // are only there while it is open).
-    try std.testing.expect(t.hasText("文件夹"));
-    try std.testing.expect(t.hasText("打开目录"));
+    try std.testing.expect(t.hasText("资料库"));
+    try std.testing.expect(t.hasText("设置"));
     try std.testing.expect(t.containsText("张图片"));
 
     // And the file on disk says so. The root it carries is the load's

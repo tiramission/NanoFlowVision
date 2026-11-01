@@ -63,72 +63,7 @@ pub const bar_height: f32 = 44;
 /// the way here would be clipped into meaningless fragments anyway.
 const crumbs_narrow: f32 = 760;
 
-/// The folders, down the left.
-pub fn rail(s: *app.State, c: *ui.Context) void {
-    const k = theme.colors(s.dark);
-    const tr = i18n.strings(s.lang);
-    treeKeys(s, c);
-    const side = ui.div(c).column().w(s.rail_w).hFull().bg(k.sidebar).px(10).gap(2);
-    defer side.end();
-    {
-        const top = ui.div(c).row().wFull().h(44).itemsCenter().gap(8).px(6);
-        defer top.end();
-        // The mark, the app's own: a photograph on the inverted ground,
-        // so the one saturated thing in the rail is the logo.
-        {
-            const mark = ui.div(c).row().w(22).h(22).center().rounded(6).bg(k.accent);
-            defer mark.end();
-            ui.icon(c, "photo", .{ .size = 12, .color = k.page });
-        }
-        ui.text(c, "NanoFlowVision", .{ .size = 13, .weight = .bold, .color = k.text });
-    }
-    sideSection(c, k, tr.folders);
-    ui.scroll(c, .{ .width = .fill, .height = .fill, .gap = 2 });
-    folders(s, c, k, &s.tree);
-    ui.end(c);
-    // What the gallery takes in, and the way to another folder altogether.
-    {
-        const row = ui.div(c).row().wFull().itemsCenter().px(8).py(4);
-        defer row.end();
-        if (ui.checkbox(c, tr.subfolders, &s.recursive)) {
-            if (s.current) |folder| folder.loaded = false;
-            s.relist_pending = true;
-        }
-    }
-    {
-        var row = ui.div(c).row().wFull().h(30).itemsCenter().gap(9).px(7).rounded(7).control();
-        defer row.end();
-        row = row.hover(k.hover);
-        if (row.clicked()) askForFolder(s);
-        {
-            const chip = ui.div(c).row().w(20).h(20).center().rounded(6).bg(k.accent.alpha(0.16));
-            defer chip.end();
-            ui.icon(c, "folder", .{ .size = 11, .color = k.accent });
-        }
-        ui.text(c, tr.open_folder, .{ .size = 13, .color = k.text });
-    }
-    // The settings, one click away at the sidebar's foot.
-    {
-        var row = ui.div(c).row().wFull().h(30).itemsCenter().gap(9).px(7).rounded(7).control();
-        defer row.end();
-        row = row.hover(k.hover);
-        if (row.clicked()) {
-            s.settings_open = true;
-            c.changed = true;
-        }
-        {
-            const chip = ui.div(c).row().w(20).h(20).center().rounded(6).bg(k.accent.alpha(0.16));
-            defer chip.end();
-            ui.icon(c, "slider.horizontal.3", .{ .size = 11, .color = k.accent });
-        }
-        ui.text(c, tr.settings, .{ .size = 13, .color = k.text });
-    }
-}
-
-/// The tree's keys, when the tree has the focus: the highlight walks
-/// the rows that are visible, right opens and goes in, left folds and
-/// goes out, Enter opens. Tab hands the focus back to the grid.
-fn treeKeys(s: *app.State, c: *ui.Context) void {
+pub fn treeKeys(s: *app.State, c: *ui.Context) void {
     if (c.input.key == .tab) {
         s.tree_focus = if (s.tree_focus == null) firstVisible(&s.tree) else null;
         c.changed = true;
@@ -233,6 +168,30 @@ pub fn historyStep(s: *app.State, step: i32) void {
 }
 
 
+/// What happens before a frame is drawn, in the order the frame needs
+/// it: the system's appearance is asked after (now and then, not every
+/// frame), the folder the reader asked for is opened, and a listing
+/// that was asked for is made. The frame that follows draws the answer.
+pub fn frameStart(s: *app.State, c: *ui.Context) void {
+    // "Follow the system" is in no hurry: once a minute is often
+    // enough, and the answer rarely changes under anyone.
+    if (s.appearance == .auto and c.time - s.system_checked >= 60) {
+        s.system_checked = c.time;
+        const lit = nanoui.isDark();
+        if (lit != s.dark) s.setDark(lit);
+    }
+    if (s.reroot_pending) |path| {
+        s.reroot_pending = null;
+        reroot(s, path);
+        s.gpa.free(path);
+    }
+    if (s.relist_pending) {
+        s.relist_pending = false;
+        s.relist();
+    }
+    if (s.listed_at < 0) s.listed_at = c.time;
+}
+
 /// Makes another folder the root: the tree is read from it anew, the
 /// gallery shows what it holds, and the watcher moves with it.
 pub fn reroot(s: *app.State, path: []const u8) void {
@@ -261,65 +220,6 @@ pub fn reroot(s: *app.State, path: []const u8) void {
 }
 
 
-/// A rail section's name.
-fn sideSection(c: *ui.Context, k: theme.Colors, name: []const u8) void {
-    const d = ui.div(c).row().wFull().px(8).pt(14).pb(4);
-    defer d.end();
-    ui.text(c, name, .{ .size = 11, .weight = .semibold, .color = k.tertiary });
-}
-
-fn folders(s: *app.State, c: *ui.Context, k: theme.Colors, folder: *model.Folder) void {
-    for (folder.children) |*child| {
-        const on = s.current == child;
-        const fg = if (on) k.on_picked else k.text;
-        {
-            var row = ui.div(c).row().wFull().h(30).itemsCenter().gap(9).px(7).rounded(7).control();
-            // The keyboard's row stands out the way the pointer's does,
-            // so a walk in the tree can be followed without the mouse.
-            row = if (on) row.bg(k.picked) else if (s.tree_focus == child) row.bg(k.hover) else row.hover(k.hover);
-            row = row.pl(7 + @as(f32, @floatFromInt(child.depth)) * 12);
-            defer row.end();
-            // The chevron is sampled first: a click on it folds the folder's
-            // own in and out, and must not also open the folder -- both
-            // boxes sit under the pointer, and both would hear the click.
-            var folded = false;
-            if (child.children.len > 0) {
-                var chev = ui.div(c).row().w(16).h(24).center().rounded(5).control();
-                defer chev.end();
-                ui.icon(c, if (child.expanded) "chevron.down" else "chevron.right", .{ .size = 10, .color = k.tertiary });
-                if (chev.clicked()) {
-                    child.expanded = !child.expanded;
-                    folded = true;
-                    c.changed = true;
-                }
-            } else {
-                _ = c.leaf(.{ .width = .{ .px = 16 }, .height = .{ .px = 24 } }, .none, null);
-            }
-            if (row.clicked() and !folded) {
-                s.open(child);
-                // The folders inside it show, now that it is open.
-                child.expanded = true;
-                c.changed = true;
-            }
-            {
-                const chip = ui.div(c).row().w(20).h(20).center().rounded(6).bg(if (on) k.on_picked.alpha(0.22) else k.accent.alpha(0.16));
-                defer chip.end();
-                ui.icon(c, "folder", .{ .size = 11, .color = if (on) k.on_picked else k.accent });
-            }
-            ui.text(c, child.name, .{ .size = 13, .weight = if (on) .semibold else .regular, .color = fg });
-            ui.spacer(c);
-            if (child.pictures.len > 0) {
-                ui.textf(c, .{ .size = 11, .mono = true, .color = if (on) k.on_picked.alpha(0.8) else k.secondary }, "{d}", .{child.pictures.len});
-            }
-        }
-        // The folders inside it, drawn BELOW its row: the row is closed
-        // by now, or its children would flow on beside it, a single
-        // thirty-point line wide, and never be seen.
-        if (child.expanded) folders(s, c, k, child);
-    }
-}
-
-/// The bar above the grid: where you are, the search, and the two menus.
 pub fn commandBar(s: *app.State, c: *ui.Context) void {
     const k = theme.colors(s.dark);
     // The bar, and the hairline under it: a border would draw a frame
@@ -337,76 +237,46 @@ fn controls(s: *app.State, c: *ui.Context) void {
     const row = ui.div(c).row().wFull().h(bar_height).itemsCenter().gap(8).px(16);
     defer row.end();
 
+    // The way back to the rail while it is folded away: without this the
+    // only way to unfold it is the keyboard, and a mouse has not one.
+    if (!s.rail_visible) {
+        const back = ui.button(c, "", .{ .variant = .ghost, .size = 13, .icon = "sidebar.left" });
+        if (back.rect) |r| s.rail_toggle_at = r;
+        if (back.clicked) {
+            s.rail_visible = true;
+            c.changed = true;
+        }
+    }
+
     crumbs(s, c);
 
-    // The search: what matches stays, the rest waits its turn. It takes
-    // the room the breadcrumb leaves and holds to a readable minimum.
+    // What the gallery takes in, said as a chip that also takes it back
+    // out: the subfolders are a mode, and a mode the eye cannot see is a
+    // mode the eye will forget.
+    if (s.recursive) {
+        var chip = ui.div(c).row().h(22).itemsCenter().gap(5).px(7).rounded(5).bg(k.control).control();
+        defer chip.end();
+        chip = chip.hover(k.hover);
+        ui.icon(c, "folder", .{ .size = 11, .color = k.secondary });
+        ui.text(c, tr.subfolders, .{ .size = 12, .color = k.secondary });
+        ui.icon(c, "xmark", .{ .size = 9, .color = k.tertiary });
+        if (chip.clicked()) {
+            s.recursive = false;
+            if (s.current) |folder| folder.loaded = false;
+            s.relist_pending = true;
+            s.saveSettings();
+            c.changed = true;
+        }
+    }
+
+    // The search: what matches stays, the rest waits its turn. It keeps
+    // its own width, so the breadcrumb is never squeezed for it.
     {
-        const frame = ui.div(c).row().h(30).itemsCenter().gap(7).px(10).grow().minW(80).maxW(220).rounded(8).bg(k.well).border(k.border);
+        const frame = ui.div(c).row().h(30).itemsCenter().gap(7).px(10).w(220).rounded(8).bg(k.well).border(k.border);
         defer frame.end();
         ui.icon(c, "magnifyingglass", .{ .size = 12, .color = k.tertiary });
-        const field = ui.textField(c, &s.search, .{ .placeholder = tr.search_placeholder, .width = .{ .px = 150 }, .size = 13, .bare = true });
+        const field = ui.textField(c, &s.search, .{ .placeholder = tr.search_placeholder, .width = .fill, .size = 13, .bare = true });
         if (field.changed) s.orderChanged();
-    }
-
-    // How big the pictures are, and how they are ordered: two icon
-    // buttons whose menus open under them and say the choice with a tick.
-    const dens = ui.button(c, "", .{ .variant = .ghost, .size = 13, .icon = "square.grid.2x2" });
-    // The button's place, written out every frame: the menu hangs from
-    // it, and a test finds it there (as the grid's first picture is).
-    if (dens.rect) |r| s.density_at = r;
-    if (dens.clicked) {
-        s.density_open = true;
-        c.changed = true;
-    }
-    var dens_items = [_]kit.MenuItem{
-        .{ .label = tr.density_small, .checked = s.density == .small },
-        .{ .label = tr.density_medium, .checked = s.density == .medium },
-        .{ .label = tr.density_large, .checked = s.density == .large },
-    };
-    if (kit.menu(c, "density-menu", &s.density_open, s.density_at, &dens_items, .{})) |chosen| {
-        const next: config.Density = switch (chosen) {
-            0 => .small,
-            1 => .medium,
-            else => .large,
-        };
-        if (next != s.density) {
-            s.density = next;
-            // The layout follows the new target row height, and the
-            // thumbnails on screen are re-decoded at its side.
-            s.orderChanged();
-            s.saveSettings();
-            s.toast(.info, i18n.densitySet(c.alloc(), s.lang, next.label(s.lang)));
-        }
-    }
-
-    const sort = ui.button(c, "", .{ .variant = .ghost, .size = 13, .icon = "chevron.up.chevron.down" });
-    if (sort.rect) |r| s.sort_at = r;
-    if (sort.clicked) {
-        s.sort_open = true;
-        c.changed = true;
-    }
-    var sort_items = [_]kit.MenuItem{
-        .{ .label = tr.sort_name, .checked = s.sort == .name },
-        .{ .label = tr.sort_date, .checked = s.sort == .time },
-        .{ .label = tr.sort_size, .checked = s.sort == .size },
-        .{ .label = tr.sort_pixels, .checked = s.sort == .pixels },
-        .{ .label = tr.sort_stars, .checked = s.sort == .stars },
-        .{ .separator = true },
-        .{ .label = tr.sort_ascending, .checked = s.sort_ascending },
-        .{ .label = tr.sort_descending, .checked = !s.sort_ascending },
-    };
-    if (kit.menu(c, "sort-menu", &s.sort_open, s.sort_at, &sort_items, .{})) |chosen| {
-        if (chosen <= 4) {
-            s.sort = @fromBackingInt(@intCast(chosen));
-            // A name goes A to Z first; the rest go newest and largest first.
-            s.sort_ascending = s.sort == .name;
-        } else if (chosen == 6) {
-            s.sort_ascending = true;
-        } else {
-            s.sort_ascending = false;
-        }
-        s.orderChanged();
     }
 
     // The star filter: what the wall keeps, said as a chip when it is
@@ -440,6 +310,112 @@ fn controls(s: *app.State, c: *ui.Context) void {
             s.filter_stars = next;
             s.orderChanged();
             c.changed = true;
+        }
+    }
+
+    // How the pictures are ordered, and how big they are: two icon
+    // buttons whose menus open under them and say the choice with a tick.
+    const sort = ui.button(c, "", .{ .variant = .ghost, .size = 13, .icon = "chevron.up.chevron.down" });
+    if (sort.rect) |r| s.sort_at = r;
+    if (sort.clicked) {
+        s.sort_open = true;
+        c.changed = true;
+    }
+    var sort_items = [_]kit.MenuItem{
+        .{ .label = tr.sort_name, .checked = s.sort == .name },
+        .{ .label = tr.sort_date, .checked = s.sort == .time },
+        .{ .label = tr.sort_size, .checked = s.sort == .size },
+        .{ .label = tr.sort_pixels, .checked = s.sort == .pixels },
+        .{ .label = tr.sort_stars, .checked = s.sort == .stars },
+        .{ .separator = true },
+        .{ .label = tr.sort_ascending, .checked = s.sort_ascending },
+        .{ .label = tr.sort_descending, .checked = !s.sort_ascending },
+    };
+    if (kit.menu(c, "sort-menu", &s.sort_open, s.sort_at, &sort_items, .{})) |chosen| {
+        if (chosen <= 4) {
+            s.sort = @fromBackingInt(@intCast(chosen));
+            // A name goes A to Z first; the rest go newest and largest first.
+            s.sort_ascending = s.sort == .name;
+        } else if (chosen == 6) {
+            s.sort_ascending = true;
+        } else {
+            s.sort_ascending = false;
+        }
+        s.orderChanged();
+    }
+
+    const dens = ui.button(c, "", .{ .variant = .ghost, .size = 13, .icon = "square.grid.2x2" });
+    // The button's place, written out every frame: the menu hangs from
+    // it, and a test finds it there (as the grid's first picture is).
+    if (dens.rect) |r| s.density_at = r;
+    if (dens.clicked) {
+        s.density_open = true;
+        c.changed = true;
+    }
+    var dens_items = [_]kit.MenuItem{
+        .{ .label = tr.density_small, .checked = s.density == .small },
+        .{ .label = tr.density_medium, .checked = s.density == .medium },
+        .{ .label = tr.density_large, .checked = s.density == .large },
+    };
+    if (kit.menu(c, "density-menu", &s.density_open, s.density_at, &dens_items, .{})) |chosen| {
+        const next: config.Density = switch (chosen) {
+            0 => .small,
+            1 => .medium,
+            else => .large,
+        };
+        if (next != s.density) {
+            s.density = next;
+            // The layout follows the new target row height, and the
+            // thumbnails on screen are re-decoded at its side.
+            s.orderChanged();
+            s.saveSettings();
+            s.toast(.info, i18n.densitySet(c.alloc(), s.lang, next.label(s.lang)));
+        }
+    }
+
+    // The rest: the words that act on the choice, the subfolders, a
+    // rescan, another folder, the settings -- the rail's old foot, kept
+    // where the eye goes for what is not on the bar.
+    const more = ui.button(c, "", .{ .variant = .ghost, .size = 13, .icon = "ellipsis.circle" });
+    if (more.rect) |r| s.more_at = r;
+    if (more.clicked) {
+        s.more_open = true;
+        c.changed = true;
+    }
+    var more_items = [_]kit.MenuItem{
+        .{ .label = tr.select_all, .shortcut = ui.keys.label("⌘A") },
+        .{ .label = tr.clear_selection, .shortcut = ui.keys.label("Esc") },
+        .{ .separator = true },
+        .{ .label = tr.subfolders, .checked = s.recursive },
+        .{ .label = tr.rescan, .shortcut = ui.keys.label("F5") },
+        .{ .label = tr.open_folder, .shortcut = ui.keys.label("⌘O") },
+        .{ .separator = true },
+        .{ .label = tr.settings, .shortcut = ui.keys.label("⌘,") },
+    };
+    if (kit.menu(c, "more-menu", &s.more_open, s.more_at, &more_items, .{})) |picked| {
+        switch (picked) {
+            0 => {
+                s.select.all(s.shown);
+                c.changed = true;
+            },
+            1 => {
+                s.select.clear();
+                c.changed = true;
+            },
+            3 => {
+                s.recursive = !s.recursive;
+                if (s.current) |folder| folder.loaded = false;
+                s.relist_pending = true;
+                s.saveSettings();
+                c.changed = true;
+            },
+            4 => s.relist_pending = true,
+            5 => askForFolder(s),
+            7 => {
+                s.settings_open = true;
+                c.changed = true;
+            },
+            else => {},
         }
     }
 }

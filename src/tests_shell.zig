@@ -9,7 +9,9 @@ const nanoui = @import("nanoui");
 const ui = nanoui.ui;
 const app = @import("app.zig");
 const config = @import("config.zig");
+const exif = @import("exif.zig");
 const statusbar = @import("statusbar.zig");
+const xmp = @import("xmp.zig");
 const tests_mod = @import("tests.zig");
 
 test "the folder's name survives a narrow window" {
@@ -297,4 +299,216 @@ test "a search that matches nothing offers the way back" {
     t.settle(0.2);
     try std.testing.expectEqual(@as(usize, 1), state.shown.len);
     try std.testing.expect(t.hasText("1 pictures"));
+}
+
+test "the more menu gathers the choice's words, the subfolders and the settings" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 3);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600 });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+
+    // The rail's old foot is gone: what it held is behind the bar's last
+    // button, whose place the frame writes out for the click.
+    t.frame();
+    try std.testing.expect(!t.hasText("Open folder"));
+    const more = state.more_at;
+    try std.testing.expect(more.w > 0);
+    t.click(more.x + more.w / 2, more.y + more.h / 2);
+    t.settle(0.3);
+    try std.testing.expect(state.more_open);
+    try std.testing.expect(t.hasText("Select all"));
+    try std.testing.expect(t.hasText("Subfolders"));
+    try std.testing.expect(t.hasText("Rescan"));
+    try std.testing.expect(t.hasText("Open folder"));
+
+    // Selecting all from the menu chooses the whole wall, and the status
+    // bar says how much that is.
+    try t.clickText("Select all");
+    t.settle(0.3);
+    try std.testing.expectEqual(@as(usize, 3), state.select.count());
+    try std.testing.expect(t.hasText("3 of 3 selected"));
+
+    // The subfolders are a mode the bar shows while it is on: the menu
+    // puts it on, and the chip it grows takes it off again.
+    t.frame();
+    const again = state.more_at;
+    t.click(again.x + again.w / 2, again.y + again.h / 2);
+    t.settle(0.3);
+    try t.clickText("Subfolders");
+    t.settle(0.5);
+    try std.testing.expect(state.recursive);
+    try std.testing.expect(t.hasText("Subfolders"));
+    try t.clickText("Subfolders");
+    t.settle(0.5);
+    try std.testing.expect(!state.recursive);
+}
+
+test "the rail says when a folder has no subfolders" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSample(gpa);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600 });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    t.frame();
+
+    try std.testing.expectEqual(@as(usize, 0), state.tree.children.len);
+    try std.testing.expect(t.hasText("No subfolders here"));
+    try std.testing.expect(t.hasText("Library"));
+}
+
+test "a folded rail leaves a button that brings it back" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSample(gpa);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600 });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+
+    _ = t.shortcut(.{ .key = 'b', .ctrl = true });
+    t.settle(0.2);
+    try std.testing.expect(!state.rail_visible);
+    // The button stands where the rail was, at the bar's start, and it
+    // says nothing: its place is what the frame left for the pointer.
+    t.frame();
+    const back = state.rail_toggle_at;
+    try std.testing.expect(back.w > 0);
+    try std.testing.expect(back.x < 60);
+    t.click(back.x + back.w / 2, back.y + back.h / 2);
+    t.settle(0.2);
+    try std.testing.expect(state.rail_visible);
+}
+
+test "a tile says its name and weight while the pointer is on it" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 6);
+    defer sample.deinit(gpa);
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 1100, .height = 720 });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    t.frame();
+
+    // The first tile's place, as the layout left it.
+    const p = state.layout.placements[0];
+    const cx = state.grid_x + p.x + p.w / 2;
+    const cy = state.grid_y + p.y - state.grid_offset + p.h / 2;
+    const name = state.shown[0].name;
+    // Nowhere near the wall: the name is the picture's own business.
+    try std.testing.expect(!t.hasText(name));
+
+    t.moveTo(cx, cy);
+    t.frame();
+    const said = t.findText(name) orelse return error.NoCaption;
+    // The caption runs along the tile's foot, inside it: the one place
+    // a name can be read without covering what it names.
+    const foot = state.grid_y + p.y - state.grid_offset + p.h;
+    try std.testing.expect(said.w > 0);
+    try std.testing.expect(said.y + said.h <= foot + 1);
+    try std.testing.expect(said.y >= foot - 27);
+    // The weight of the file, beside it, as the status bar says it.
+    const known = state.shared.measuredOf(state.shown[0].path) orelse return error.NotMeasured;
+    var buf: [24]u8 = undefined;
+    const size_said = statusbar.sizeText(&buf, known.bytes);
+    const weighed = t.findText(size_said) orelse return error.NoWeight;
+    // The weight sits at the far end of the foot, and the name stops
+    // before it: the two never run into one word.
+    const tile_right = state.grid_x + p.x + p.w;
+    try std.testing.expect(weighed.x + weighed.w <= tile_right - 6);
+    try std.testing.expect(weighed.x + weighed.w >= tile_right - 12);
+    try std.testing.expect(said.x + said.w <= weighed.x - 2);
+
+    // Chosen, and the name stays: a choice should be readable without
+    // the pointer resting on it.
+    t.click(cx, cy);
+    t.moveTo(4, 4);
+    t.frame();
+    try std.testing.expect(t.hasText(name));
+}
+
+
+test "the corner chip opens the picture's menu" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 6);
+    defer sample.deinit(gpa);
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 1100, .height = 720 });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    t.frame();
+
+    const p = state.layout.placements[0];
+    const left = state.grid_x + p.x;
+    const top = state.grid_y + p.y - state.grid_offset;
+    // The chip's middle, where the design puts it: 24 square, six in
+    // from the tile's top right corner.
+    const cx = left + p.w - 36 + 12;
+    const cy = top + 6 + 12;
+    t.moveTo(cx, cy);
+    t.frame();
+    t.click(cx, cy);
+    t.frame();
+    try std.testing.expect(state.menu_for != null);
+    // And the choice under it is untouched: the corner is the picture's
+    // menu, not a way to pick it.
+    try std.testing.expectEqual(@as(usize, 0), state.select.count());
+}
+
+test "a rated picture wears its stars in the tile's corner" {
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const f = exif.Fixture.build(.little);
+    const jpeg = try tests_mod.exifJpeg(gpa, &f);
+    defer gpa.free(jpeg);
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "three.jpg", .data = jpeg[0..] });
+    const cwd = try std.process.currentPathAlloc(std.testing.io, gpa);
+    defer gpa.free(cwd);
+    const dir = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/tmp/{s}", .{ cwd, tmp.sub_path });
+    defer gpa.free(dir);
+    const file = try std.fmt.allocPrint(gpa, "{s}/three.jpg", .{dir});
+    defer gpa.free(file);
+    var meta: exif.Meta = .{};
+    meta.rating = 3;
+    try xmp.rewriteFile(gpa, std.testing.io, file, &meta);
+
+    const state = try app.State.create(gpa, std.testing.io, dir);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 1100, .height = 720 });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    t.frame();
+
+    // Three stars, and only three: the corner says what the file says.
+    const stars = t.findText("★★★") orelse return error.NoStars;
+    try std.testing.expect(!t.hasText("★★★★"));
+    // Low in the tile and to its left, inside its edges: the corner a
+    // photograph never needs for itself.
+    const p = state.layout.placements[0];
+    const left = state.grid_x + p.x;
+    const top = state.grid_y + p.y - state.grid_offset;
+    try std.testing.expect(stars.x >= left and stars.x < left + p.w / 2);
+    try std.testing.expect(stars.y > top + p.h / 2 and stars.y + stars.h <= top + p.h);
 }

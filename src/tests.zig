@@ -486,12 +486,13 @@ const icons_used = [_][]const u8{
     "arrow.right.square",     "chevron.down",
     "chevron.right",          "chevron.up",
     "chevron.up.chevron.down", "circle.dotted",
-    "doc.on.doc",             "exclamationmark.triangle",
-    "folder",                 "info.circle",
-    "magnifyingglass",        "pencil",
-    "photo",                  "slider.horizontal.3",
+    "doc.on.doc",             "ellipsis.circle",
+    "exclamationmark.triangle", "folder",
+    "info.circle",            "magnifyingglass",
+    "pencil",                 "photo",
+    "sidebar.left",           "slider.horizontal.3",
     "square.grid.2x2",        "star.fill",
-    "trash",
+    "trash",                  "xmark",
 };
 const icons_set = [_][]const u8{
     "arrow.clockwise",                    "arrow.right",

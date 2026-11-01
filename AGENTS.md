@@ -61,7 +61,10 @@ build.zig       the app, `run` and `test` steps
 build.zig.zon   nanoui, zigimg and nfd, pinned
 src/main.zig    the window, and the folder to show
 src/app.zig     the state and its view: tree, the overlays, the settings
-src/gallery.zig the gallery: toolbar, the grid of pictures, their menu corner
+src/shell.zig   the command bar: where you are, the search, its menus
+src/rail.zig    the folders down the left, with their counts
+src/gallery.zig the gallery: the grid, its scrolling, its keyboard
+src/tile.zig    one picture's tile: its marks, its stars, its menu corner
 src/model.zig   what a folder holds: folders, pictures
 src/scan.zig    reading folders and files
 src/decode.zig   pictures as pixels: BGRA, premultiplied; the per-platform dispatch
