@@ -233,10 +233,10 @@ pub const State = struct {
     panning: bool = false,
     last_mouse_x: f32 = 0,
     last_mouse_y: f32 = 0,
-    /// Whether the press that began a look has moved since. The look is
-    /// the left button's until the hand moves; a press that travels is a
-    /// drag, and the drag takes over.
-    press_moved: bool = false,
+    /// Whether the current press has travelled far enough to be a drag
+    /// rather than a click that wobbled. It keeps the slop from being paid
+    /// twice, and it is what turns the press's movement into a drag.
+    drag_started: bool = false,
     /// The window is full screen (or maximized where full screen does
     /// not exist), and the change to apply at the top of the next frame
     /// (a window's style is never changed in the middle of a build).

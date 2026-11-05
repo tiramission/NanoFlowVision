@@ -148,10 +148,11 @@ fn peekMode(s: *app.State, c: *ui.Context) ?app.ZoomMode {
     // again would end it the moment a 1:1 picture shrank from under the
     // hand.
     if (s.peek) |held| {
-        // A hand that moves has taken over: the look ends, the drag it
-        // became continues from the picture the reader is looking at.
+        // A look lasts until the button is let go, a drag included: at 1:1
+        // the picture is bigger than the room in most cases, and moving it
+        // under the hand is what the held button is for.
         return switch (held.mode) {
-            .actual => if (c.input.down and !c.input.secondary_down and !s.press_moved) .actual else null,
+            .actual => if (c.input.down and !c.input.secondary_down) .actual else null,
             .fit => if (c.input.secondary_down) .fit else null,
             else => null,
         };
@@ -161,9 +162,10 @@ fn peekMode(s: *app.State, c: *ui.Context) ?app.ZoomMode {
     const m = c.input.mouse;
     if (m.x < at.x or m.x >= at.x + at.w or m.y < at.y or m.y >= at.y + at.h) return null;
     if (c.input.secondary_down) return .fit;
-    // The left button looks until the hand moves. A drag has begun by then,
-    // and the drag is what the press was for.
-    if (c.input.down and !c.input.secondary_down and !s.press_moved) return .actual;
+    // The left button looks from the moment it goes down. A hand that then
+    // moves drags the 1:1 picture, and the look lasts until the button is
+    // let go -- the look is what the button is for.
+    if (c.input.down and !c.input.secondary_down) return .actual;
     return null;
 }
 
@@ -290,26 +292,24 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             c.changed = true;
         }
         // The press's state, read before the frame is built: a press that
-        // has moved is a drag, and the drag has to reach `step` this frame,
-        // not the next one. A press that has not moved is the start of a
-        // look, and `press_moved` says whether the hand has taken over.
+        // The press's movement, read before the frame is built: the drag
+        // has to reach `step` this frame, not the next one. `peek_slop`
+        // keeps a click that wobbles from being read as a drag.
         var drag: ?ui.Point = null;
         if (c.input.down and !c.input.secondary_down) {
-            // The press's own frame: the clock starts here, and nothing has
-            // moved yet.
-            if (c.input.pressed or !s.panning) s.press_moved = false;
+            if (c.input.pressed or !s.panning) s.drag_started = false;
             if (s.panning) {
                 const dx = c.input.mouse.x - s.last_mouse_x;
                 const dy = c.input.mouse.y - s.last_mouse_y;
-                if (@abs(dx) > peek_slop or @abs(dy) > peek_slop) s.press_moved = true;
-                if (s.press_moved) drag = .{ .x = dx, .y = dy };
+                if (@abs(dx) > peek_slop or @abs(dy) > peek_slop) s.drag_started = true;
+                if (s.drag_started) drag = .{ .x = dx, .y = dy };
             }
             s.panning = true;
             s.last_mouse_x = c.input.mouse.x;
             s.last_mouse_y = c.input.mouse.y;
         } else {
             s.panning = false;
-            s.press_moved = false;
+            s.drag_started = false;
         }
         const shown = zoom_mod.step(s, c, .{
             .w = room_w,

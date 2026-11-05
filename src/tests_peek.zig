@@ -251,7 +251,7 @@ test "a still press looks at once, without waiting for a clock" {
 
 
 
-test "a press that turns into a drag stops being a look" {
+test "the look at 1:1 can be dragged while the button is held" {
     const gpa = std.testing.allocator;
     var sample = try tests_mod.makeBigSample(gpa, 2);
     defer sample.deinit(gpa);
@@ -280,39 +280,48 @@ test "a press that turns into a drag stops being a look" {
     t.settle(0.2);
     t.frame();
 
-    // At 1:1 already, so a drag has room to move and the look has nothing
-    // to add.
-    t.typeText("z");
-    t.settle(1.2);
-    t.frame();
-    try std.testing.expectEqual(app.ZoomMode.actual, state.zoom_mode);
+    // The fit, so the look has a size to change to and a room to move in.
+    try std.testing.expectEqual(app.ZoomMode.fit, state.zoom_mode);
     const before = state.large_at;
 
+    // Press on the photograph and hold: it goes to 1:1 about the pointer.
     const cx = before.x + before.w / 2;
     const cy = before.y + before.h / 2;
     t.moveTo(cx, cy);
     t.ctx.input.button = .left;
     t.ctx.pointerDown();
     t.frame();
-    // The press begins as a look -- but it is already at 1:1, so the look
-    // shows what is there.
+    t.settle(1.2);
+    t.frame();
+    try std.testing.expectEqual(app.ZoomMode.actual, state.zoom_mode);
+    try std.testing.expect(state.peek != null);
+
+    // Now move, with the button still down. The look must survive it and
+    // the picture must follow the hand: at 1:1 it is bigger than the room,
+    // so there is something to move.
+    const at_1to1 = state.large_at;
     t.moveTo(cx + 40, cy + 30);
     t.frame();
     t.moveTo(cx + 80, cy + 60);
     t.frame();
-    // Moved: the look is over and the hand is moving the picture.
-    try std.testing.expect(state.press_moved);
-    const after = state.large_at;
-    try std.testing.expect(after.x > before.x + 20 or after.y > before.y + 10);
-
-    t.ctx.pointerUp();
-    t.ctx.input.button = .left;
-    t.frame();
-    // Let go: the picture stays where the hand left it, at 1:1.
+    try std.testing.expect(state.peek != null);
     try std.testing.expectEqual(app.ZoomMode.actual, state.zoom_mode);
+    try std.testing.expect(state.drag_started);
+    const moved = state.large_at;
+    try std.testing.expect(moved.x > at_1to1.x + 20 or moved.y > at_1to1.y + 10);
+
+    // Still down a frame later: nothing takes it back.
     t.frame();
     t.frame();
     const later = state.large_at;
-    try std.testing.expectApproxEqAbs(after.x, later.x, 1);
-    try std.testing.expectApproxEqAbs(after.y, later.y, 1);
+    try std.testing.expectApproxEqAbs(moved.x, later.x, 1);
+    try std.testing.expectApproxEqAbs(moved.y, later.y, 1);
+
+    // Let go: the frame that was there before the press comes back -- the
+    // fit, and where it was.
+    t.ctx.pointerUp();
+    t.ctx.input.button = .left;
+    t.frame();
+    try std.testing.expect(state.peek == null);
+    try std.testing.expectEqual(app.ZoomMode.fit, state.zoom_mode);
 }
