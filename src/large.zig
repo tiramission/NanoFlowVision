@@ -122,22 +122,32 @@ fn save(s: *app.State, pic: *model.Picture, m: *const exif.Meta) void {
     s.shared.setMeta(pic.path, m.*);
 }
 
+/// How long a press must be still before it is a look rather than the
+/// start of a drag. Long enough that a hand moving the picture never
+/// reaches it, short enough to feel like the button itself.
+const peek_delay: f64 = 0.15;
+
 /// The button held down for a look, as the mode it shows: the left one
-/// at 1:1 about the pointer, the right one filling the room. Null when
-/// neither is held, and when the pointer is not on the photograph -- a
-/// press on the top bar's stars is a press on a star, not a look.
+/// at 1:1 about the pointer, the right one fitting the picture to the
+/// room. Null when neither is held, and when the pointer is not on the
+/// photograph -- a press on the top bar's stars is a press on a star, not
+/// a look.
 ///
-/// The look lasts as long as the button does, a drag included: the left
-/// button at 1:1 is how the picture is moved about under the hand.
+/// Both buttons give the look from any mode, a wheel-zoomed one included:
+/// what the reader wants to know is how the picture looks at its own
+/// pixels or fitted, and that question does not depend on where the wheel
+/// left it. The left button shares its press with the drag, so the look
+/// waits until the press has been still; a press that moves is a drag and
+/// never becomes a look.
 fn peekMode(s: *app.State, c: *ui.Context) ?app.ZoomMode {
-    // The button that began the look keeps it, wherever the picture moved
-    // to: the pointer was on the photograph when the press started, and
-    // checking again would end the look the moment a 1:1 picture shrank
-    // away from under the hand.
+    // A look already begun keeps itself, wherever the picture moved to:
+    // the pointer was on the photograph when the press started, and asking
+    // again would end it the moment a 1:1 picture shrank from under the
+    // hand.
     if (s.peek) |held| {
         return switch (held.mode) {
             .actual => if (c.input.down and !c.input.secondary_down) .actual else null,
-            .fill => if (c.input.secondary_down) .fill else null,
+            .fit => if (c.input.secondary_down) .fit else null,
             else => null,
         };
     }
@@ -145,15 +155,12 @@ fn peekMode(s: *app.State, c: *ui.Context) ?app.ZoomMode {
     if (at.w <= 0 or at.h <= 0) return null;
     const m = c.input.mouse;
     if (m.x < at.x or m.x >= at.x + at.w or m.y < at.y or m.y >= at.y + at.h) return null;
-    // The right button looks from anywhere: filling the room is always a
-    // sensible thing to want to see.
-    if (c.input.secondary_down) return .fill;
-    // The left button looks only from the fit. Once the picture is at its
-    // own pixels or wherever the wheel left it, the left button is how it
-    // is moved -- a drag, not a look -- and taking that away to show a
-    // size it is already at would be a step sideways.
-    if (s.zoom_mode != .fit) return null;
-    if (c.input.down and !c.input.secondary_down) return .actual;
+    // The right button is nobody else's: it looks from the moment it goes
+    // down.
+    if (c.input.secondary_down) return .fit;
+    // The left button is the drag's too. Stillness is what tells them
+    // apart.
+    if (c.input.down and !c.input.secondary_down and !s.press_moved and c.time - s.pressed_at >= peek_delay) return .actual;
     return null;
 }
 
@@ -279,6 +286,31 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             wheel = 0;
             c.changed = true;
         }
+        // The press's state, read before the frame is built: a press that
+        // has moved is a drag, and the drag has to reach `step` this frame,
+        // not the next one. A press that has not moved is the start of a
+        // look, and `pressed_at` is when it began.
+        var drag: ?ui.Point = null;
+        if (c.input.down and !c.input.secondary_down) {
+            // The press's own frame: the clock starts here, and nothing has
+            // moved yet.
+            if (c.input.pressed or !s.panning) {
+                s.pressed_at = c.time;
+                s.press_moved = false;
+            }
+            if (s.panning) {
+                const dx = c.input.mouse.x - s.last_mouse_x;
+                const dy = c.input.mouse.y - s.last_mouse_y;
+                if (@abs(dx) > 1 or @abs(dy) > 1) s.press_moved = true;
+                if (s.press_moved) drag = .{ .x = dx, .y = dy };
+            }
+            s.panning = true;
+            s.last_mouse_x = c.input.mouse.x;
+            s.last_mouse_y = c.input.mouse.y;
+        } else {
+            s.panning = false;
+            s.press_moved = false;
+        }
         const shown = zoom_mod.step(s, c, .{
             .w = room_w,
             .h = room_h,
@@ -287,7 +319,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             .img_h = img_h,
             .fit = fit,
             .cover = cover,
-        }, wheel, zoom_toggle, fill_toggle, peekMode(s, c));
+        }, wheel, zoom_toggle, fill_toggle, peekMode(s, c), drag);
         const zoom = shown.zoom;
         const w = img_w * zoom;
         const h = img_h * zoom;
@@ -310,30 +342,6 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             if (inter.double_clicked) {
                 zoom_mod.toggleFit(s);
                 c.changed = true;
-            } else if (inter.pressed and (zoom > fit + 0.01 or s.peek != null)) {
-                // Dragging moves the picture under the hand. The anchor
-                // is the point under the pointer, so it moves with it --
-                // the derivation above keeps the picture there until the
-                // edges stop it.
-                if (s.panning) {
-                    s.pan_tx += c.input.mouse.x - s.last_mouse_x;
-                    s.pan_ty += c.input.mouse.y - s.last_mouse_y;
-                    // The hand took the picture: from here the pan is the
-                    // reader's, and the wheel picks the anchor up again.
-                    zoom_mod.dragged(s);
-                    const bw = img_w * zoom;
-                    const bh = img_h * zoom;
-                    const ox = @max(0, (bw - room_w) / 2);
-                    const oy = @max(0, (bh - room_h) / 2);
-                    s.pan_tx = std.math.clamp(s.pan_tx, -ox, ox);
-                    s.pan_ty = std.math.clamp(s.pan_ty, -oy, oy);
-                    c.changed = true;
-                }
-                s.panning = true;
-                s.last_mouse_x = c.input.mouse.x;
-                s.last_mouse_y = c.input.mouse.y;
-            } else {
-                s.panning = false;
             }
             _ = ui.texture(c, .{ .width = .fill, .height = .fill }, texture, .{ 0, 0, 1, 1 }, 1);
         }

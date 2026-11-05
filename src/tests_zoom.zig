@@ -357,6 +357,11 @@ test "holding the left button looks at 1:1, and letting go puts it back" {
     t.ctx.input.button = .left;
     t.ctx.pointerDown();
     t.frame();
+    // A press that has not moved for a moment is a look; before that it
+    // could still become a drag.
+    try std.testing.expect(state.peek == null);
+    t.advance(0.3);
+    t.frame();
     try std.testing.expect(state.peek != null);
     try std.testing.expectEqual(app.ZoomMode.actual, state.zoom_mode);
     t.settle(1.2);
@@ -378,7 +383,7 @@ test "holding the left button looks at 1:1, and letting go puts it back" {
     try std.testing.expectEqual(@as(?f32, null), state.zoom_target);
 }
 
-test "holding the right button fills the room, and letting go puts it back" {
+test "holding the right button fits the picture to the room, and letting go puts it back" {
     const gpa = std.testing.allocator;
     var sample = try tests_mod.makeSampleWith(gpa, 2);
     defer sample.deinit(gpa);
@@ -407,26 +412,36 @@ test "holding the right button fills the room, and letting go puts it back" {
     t.settle(0.2);
     t.frame();
 
-    // The right button held: the room is covered.
+    // The right button held: the picture is fitted to the room, whatever
+    // the wheel had made of it.
     const at = state.large_at;
     t.moveTo(at.x + at.w / 2, at.y + at.h / 2);
+    // First take it somewhere that is not the fit, so the look has
+    // something to undo.
+    t.scroll(at.x + at.w / 2, at.y + at.h / 2, 600);
+    t.settle(0.6);
+    t.frame();
+    const zoomed = state.zoom;
+    try std.testing.expect(zoomed > 1.0);
+
     t.ctx.input.button = .right;
     t.ctx.secondaryDown();
-    t.frame();
-    try std.testing.expectEqual(app.ZoomMode.fill, state.zoom_mode);
-    t.settle(1.2);
-    t.frame();
-    const filled = state.large_at;
-    try std.testing.expect(filled.w >= 900 - 60 or filled.h >= 800 - 60);
-
-    // Let go: back where it was.
-    t.ctx.pointerUp();
-    t.ctx.input.button = .right;
     t.frame();
     try std.testing.expectEqual(app.ZoomMode.fit, state.zoom_mode);
     t.settle(1.2);
     t.frame();
-    try std.testing.expectEqual(@as(?f32, null), state.zoom_target);
+    // Fitted: the picture is inside the room, not overflowing it.
+    const fitted = state.large_at;
+    try std.testing.expect(fitted.w <= 900 and fitted.h <= 800);
+
+    // Let go: the wheel's zoom comes back, not a default.
+    t.ctx.pointerUp();
+    t.ctx.input.button = .right;
+    t.frame();
+    try std.testing.expectEqual(app.ZoomMode.free, state.zoom_mode);
+    t.settle(1.2);
+    t.frame();
+    try std.testing.expectApproxEqAbs(zoomed, state.zoom, 0.05);
 }
 
 test "the look at 1:1 can be dragged under the held button" {
@@ -465,6 +480,9 @@ test "the look at 1:1 can be dragged under the held button" {
     t.ctx.input.button = .left;
     t.ctx.pointerDown();
     t.frame();
+    // Stillness first: that is what makes it a look and not a drag.
+    t.advance(0.3);
+    t.frame();
     t.settle(1.2);
     t.frame();
     try std.testing.expectEqual(app.ZoomMode.actual, state.zoom_mode);
@@ -487,4 +505,77 @@ test "the look at 1:1 can be dragged under the held button" {
     t.ctx.input.button = .left;
     t.frame();
     try std.testing.expectEqual(app.ZoomMode.fit, state.zoom_mode);
+}
+
+test "a wheel-zoomed picture still takes a look, and gives back its zoom" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeBigSample(gpa, 2);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 900, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+
+    t.key(.down);
+    t.settle(0.1);
+    t.typeText(" ");
+    t.settle(0.2);
+    const key = try thumbs.largeKey(gpa, state.large.?.path);
+    defer gpa.free(key);
+    for (0..400) |_| {
+        t.frame();
+        if (state.shared.get(key)) |known| {
+            if (known.thumb != null) break;
+        }
+        std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake) catch {};
+    }
+    t.settle(0.2);
+    t.frame();
+
+    // Somewhere between the fit and 1:1: the mode the wheel leaves is
+    // nobody's named mode, and the look must work from it all the same.
+    const at = state.large_at;
+    t.scroll(at.x + at.w * 0.4, at.y + at.h * 0.6, 600);
+    t.settle(0.6);
+    t.frame();
+    try std.testing.expectEqual(app.ZoomMode.free, state.zoom_mode);
+    const zoomed = state.zoom;
+    try std.testing.expect(zoomed > 1.0);
+
+    // Hold the left button still: the look is 1:1, and it comes about the
+    // pointer -- not about the middle of the room.
+    const px = at.x + at.w * 0.4;
+    const py = at.y + at.h * 0.6;
+    t.moveTo(px, py);
+    t.ctx.input.button = .left;
+    t.ctx.pointerDown();
+    t.frame();
+    t.advance(0.3);
+    t.frame();
+    try std.testing.expectEqual(app.ZoomMode.actual, state.zoom_mode);
+    t.settle(1.2);
+    t.frame();
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), state.zoom, 0.02);
+    // The point under the pointer is the same point of the picture that
+    // was under it: at 1:1 the picture overflows the room, so nothing
+    // forces it to the middle and the anchor has to hold exactly.
+    const shown = state.large_at;
+    try std.testing.expect(shown.w > 900 and shown.h > 800);
+    const fx = (px - shown.x) / shown.w;
+    const fy = (py - shown.y) / shown.h;
+    try std.testing.expectApproxEqAbs(0.4, fx, 0.03);
+    try std.testing.expectApproxEqAbs(0.6, fy, 0.03);
+
+    // Let go: the wheel's zoom and its place come back, not the fit.
+    t.ctx.pointerUp();
+    t.ctx.input.button = .left;
+    t.frame();
+    try std.testing.expectEqual(app.ZoomMode.free, state.zoom_mode);
+    t.settle(1.2);
+    t.frame();
+    try std.testing.expectApproxEqAbs(zoomed, state.zoom, 0.05);
 }

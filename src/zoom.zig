@@ -33,30 +33,48 @@ pub const Shown = struct { zoom: f32, pan_x: f32, pan_y: f32 };
 /// pan that holds the anchor under the pointer. Returns what to draw.
 ///
 /// `peek` is a button held down for a look: the left one at 1:1 about the
-/// pointer, the right one filling the room. The mode it was in is kept and
-/// comes back when the button is let go.
-pub fn step(s: *app.State, c: *ui.Context, room: Room, wheel: f32, toggle_fit: bool, toggle_fill: bool, peek: ?app.ZoomMode) Shown {
+/// pointer, the right one fitting the picture to the room. Everything the
+/// view was in before -- mode, target, anchor, pan -- is kept and put back
+/// when the button is let go.
+pub fn step(s: *app.State, c: *ui.Context, room: Room, wheel: f32, toggle_fit: bool, toggle_fill: bool, peek: ?app.ZoomMode, drag: ?ui.Point) Shown {
     if (toggle_fit) toggleFit(s);
     if (toggle_fill) toggleFill(s);
 
     // A held button, and the moment it is let go.
     if (peek) |want| {
         if (s.peek == null) {
-            s.peek = .{ .mode = want, .before = s.zoom_mode };
+            // The frame the reader is looking at now, whole: the look has
+            // to give this back, not a fit, or a picture the wheel had
+            // zoomed and panned would jump home on release.
+            s.peek = .{
+                .mode = want,
+                .before = s.zoom_mode,
+                .zoom = s.zoom,
+                .zoom_target = s.zoom_target,
+                .anchor = s.anchor,
+                .anchor_mouse = s.anchor_mouse,
+                .pan_x = s.pan_tx,
+                .pan_y = s.pan_ty,
+            };
             s.zoom_mode = want;
             if (want == .actual) {
                 // At 1:1 the point under the pointer stays under it, the
                 // way the wheel would put it there.
                 anchorAt(s, c, room);
             } else {
-                centre(s);
+                centre(s, c, room);
             }
         }
     } else if (s.peek != null) {
         const was = s.peek.?;
         s.peek = null;
         s.zoom_mode = was.before;
-        centre(s);
+        s.zoom = was.zoom;
+        s.zoom_target = was.zoom_target;
+        s.anchor = was.anchor;
+        s.anchor_mouse = was.anchor_mouse;
+        s.pan_tx = was.pan_x;
+        s.pan_ty = was.pan_y;
     }
 
     // The mode says what the zoom is trying to be; "fill" follows the
@@ -107,6 +125,21 @@ pub fn step(s: *app.State, c: *ui.Context, room: Room, wheel: f32, toggle_fit: b
     // dragged it, and the pan stays as it is: a picture at 1:1 is bigger than
     // the room, so it is draggable, and zeroing the pan here every frame is
     // what made a double click's zoom refuse to be dragged.
+    //
+    // A drag moves the anchor's mouse point rather than the pan: the picture
+    // point that was under the pointer is still meant to be under the
+    // pointer, and the pointer has moved -- so the derivation above puts the
+    // picture under the hand. Writing the pan instead would fight it, and
+    // the anchor would win.
+    if (drag) |d| {
+        if (s.anchor == null) {
+            s.pan_tx += d.x;
+            s.pan_ty += d.y;
+        } else {
+            s.anchor_mouse.x += d.x;
+            s.anchor_mouse.y += d.y;
+        }
+    }
     if (s.anchor) |a| {
         const bw = room.img_w * zoom;
         const bh = room.img_h * zoom;
@@ -123,6 +156,15 @@ pub fn step(s: *app.State, c: *ui.Context, room: Room, wheel: f32, toggle_fit: b
         if (ox <= 0) s.pan_tx = 0 else s.pan_tx = std.math.clamp(s.pan_tx, -ox, ox);
         if (oy <= 0) s.pan_ty = 0 else s.pan_ty = std.math.clamp(s.pan_ty, -oy, oy);
     }
+    // The anchor and the pan have to agree after the clamp, or a drag held
+    // against an edge would keep asking for more than the edge allows and
+    // the picture would shudder on release.
+    if (s.anchor) |a| {
+        const bw = room.img_w * zoom;
+        const bh = room.img_h * zoom;
+        s.anchor_mouse.x = (c.size.w - bw) / 2 + a.x * bw + s.pan_tx;
+        s.anchor_mouse.y = room.top + (room.h - bh) / 2 + a.y * bh + s.pan_ty;
+    }
     return .{ .zoom = zoom, .pan_x = s.pan_tx, .pan_y = s.pan_ty };
 }
 
@@ -131,7 +173,9 @@ pub fn step(s: *app.State, c: *ui.Context, room: Room, wheel: f32, toggle_fit: b
 /// fit is bigger than 1:1, and the two still trade.
 pub fn toggleFit(s: *app.State) void {
     s.zoom_mode = if (s.zoom_mode == .actual) .fit else .actual;
-    centre(s);
+    // A mode change centres the picture; the frame that follows derives
+    // the pan from the anchor, and an anchor of the middle is the middle.
+    s.anchor = .{ .x = 0.5, .y = 0.5 };
 }
 
 /// Filling the screen and 1:1 change places (`f`): the two ways of
@@ -139,7 +183,7 @@ pub fn toggleFit(s: *app.State) void {
 /// it goes to fill, which is the one that needs saying.
 pub fn toggleFill(s: *app.State) void {
     s.zoom_mode = if (s.zoom_mode == .fill) .actual else .fill;
-    centre(s);
+    s.anchor = .{ .x = 0.5, .y = 0.5 };
 }
 
 /// The chip's click walks the three named modes: fit, fill, 1:1.
@@ -149,14 +193,17 @@ pub fn cycle(s: *app.State) void {
         .fill => .actual,
         .actual, .free => .fit,
     };
-    centre(s);
+    s.anchor = .{ .x = 0.5, .y = 0.5 };
 }
 
 /// A mode change puts the middle of the picture in the middle of the room.
 /// It is an anchor like any other, so a later wheel or drag starts from
-/// here instead of from nothing.
-fn centre(s: *app.State) void {
+/// here instead of from nothing -- and the anchor's mouse point has to be
+/// the room's middle too, or the pan derived from it would centre the
+/// picture on wherever the pointer happened to be.
+fn centre(s: *app.State, c: *ui.Context, room: Room) void {
     s.anchor = .{ .x = 0.5, .y = 0.5 };
+    s.anchor_mouse = .{ .x = c.size.w / 2, .y = room.top + room.h / 2 };
     s.pan_tx = 0;
     s.pan_ty = 0;
 }

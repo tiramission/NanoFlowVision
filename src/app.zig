@@ -43,9 +43,21 @@ const max_columns: usize = 12;
 /// (cropped), at its own pixels, or wherever the wheel left it.
 pub const ZoomMode = enum { fit, fill, actual, free };
 
-/// A button held down for a look: `mode` is what the view shows meanwhile,
-/// and the state it was in before is what comes back when it is let go.
-pub const Peek = struct { mode: ZoomMode, before: ZoomMode };
+/// A button held down for a look: `mode` is what the view shows meanwhile.
+/// Everything the view was in before is kept here and put back on release --
+/// the mode, the target the wheel had set, the anchor and the pan -- because
+/// the look must give back exactly the frame the reader had, down to where
+/// a wheel-zoomed picture was sitting.
+pub const Peek = struct {
+    mode: ZoomMode,
+    before: ZoomMode,
+    zoom: f32,
+    zoom_target: ?f32,
+    anchor: ?ui.Point,
+    anchor_mouse: ui.Point,
+    pan_x: f32,
+    pan_y: f32,
+};
 
 /// The window's own name, when nothing else is being said in the title.
 pub const app_name = "NanoFlowVision";
@@ -221,6 +233,13 @@ pub const State = struct {
     panning: bool = false,
     last_mouse_x: f32 = 0,
     last_mouse_y: f32 = 0,
+    /// When the left button went down on the photograph, and whether it has
+    /// moved since. A look at 1:1 waits until the press has been still for
+    /// a moment: a drag begins with the same press, and a picture the wheel
+    /// has already zoomed has to stay draggable -- so stillness, not the
+    /// button alone, is what asks for the look.
+    pressed_at: f64 = 0,
+    press_moved: bool = false,
     /// The window is full screen (or maximized where full screen does
     /// not exist), and the change to apply at the top of the next frame
     /// (a window's style is never changed in the middle of a build).

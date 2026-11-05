@@ -565,6 +565,8 @@ test "snapshot: the look at 1:1 under the pointer" {
     t.ctx.input.button = .left;
     t.ctx.pointerDown();
     t.frame();
+    // A still press for a moment: that is what asks for the look.
+    t.advance(0.3);
     t.settle(1.2);
     try std.testing.expectEqual(app.ZoomMode.actual, state.zoom_mode);
     try shots.shot(&t, "docs/redesign/shots/peek.png");
