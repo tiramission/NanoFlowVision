@@ -62,3 +62,98 @@ pub fn zoomed(window_handle: *anyopaque) bool {
     const hwnd: HWND = @ptrCast(window_handle);
     return IsZoomed(hwnd) != 0;
 }
+
+// --- full screen -------------------------------------------------------
+//
+// The window is a normal overlapped window; going full screen means
+// dropping that frame (WS_POPUP over the monitor's whole rectangle) and
+// putting it back afterwards. The style and the rectangle before the
+// change are kept here -- one window, one full screen. The settings
+// never see this: the app saves the frame it remembers instead.
+
+const RECT = extern struct {
+    left: i32 = 0,
+    top: i32 = 0,
+    right: i32 = 0,
+    bottom: i32 = 0,
+};
+
+const MONITORINFO = extern struct {
+    cbSize: u32 = @sizeOf(MONITORINFO),
+    rcMonitor: RECT = .{},
+    rcWork: RECT = .{},
+    dwFlags: u32 = 0,
+};
+
+const GWL_STYLE: i32 = -16;
+const WS_POPUP: u32 = 0x8000_0000;
+const WS_VISIBLE: u32 = 0x1000_0000;
+const SWP_NOZORDER: u32 = 0x0004;
+const SWP_NOACTIVATE: u32 = 0x0010;
+const SWP_FRAMECHANGED: u32 = 0x0020;
+const SWP_SHOWWINDOW: u32 = 0x0040;
+const MONITOR_DEFAULTTONEAREST: u32 = 2;
+const SW_SHOWMAXIMIZED: i32 = 3;
+
+extern "user32" fn GetWindowLongPtrW(hwnd: HWND, index: i32) callconv(.winapi) isize;
+extern "user32" fn SetWindowLongPtrW(hwnd: HWND, index: i32, value: isize) callconv(.winapi) isize;
+extern "user32" fn SetWindowPos(hwnd: HWND, after: ?HWND, x: i32, y: i32, cx: i32, cy: i32, flags: u32) callconv(.winapi) i32;
+extern "user32" fn GetWindowRect(hwnd: HWND, rect: *RECT) callconv(.winapi) i32;
+extern "user32" fn MonitorFromWindow(hwnd: HWND, flags: u32) callconv(.winapi) ?*anyopaque;
+extern "user32" fn GetMonitorInfoW(monitor: *anyopaque, info: *MONITORINFO) callconv(.winapi) i32;
+extern "user32" fn ShowWindow(hwnd: HWND, cmd: i32) callconv(.winapi) i32;
+
+/// What the window was before it went full screen.
+const Before = struct {
+    style: isize,
+    rect: RECT,
+    zoomed: bool,
+};
+var before: ?Before = null;
+
+/// Takes the window over the monitor it is on (on) or puts its frame
+/// back (off). False when Windows gave us nothing to work with.
+pub fn setFullscreen(window_handle: *anyopaque, on: bool) bool {
+    if (builtin.os.tag != .windows) return false;
+    const hwnd: HWND = @ptrCast(window_handle);
+    if (on) {
+        if (before != null) return true;
+        const style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+        var rect: RECT = .{};
+        if (GetWindowRect(hwnd, &rect) == 0) return false;
+        const monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) orelse return false;
+        var info: MONITORINFO = .{};
+        if (GetMonitorInfoW(monitor, &info) == 0) return false;
+        before = .{ .style = style, .rect = rect, .zoomed = IsZoomed(hwnd) != 0 };
+        const popup: isize = @intCast(WS_POPUP | WS_VISIBLE);
+        _ = SetWindowLongPtrW(hwnd, GWL_STYLE, popup);
+        const m = info.rcMonitor;
+        _ = SetWindowPos(hwnd, null, m.left, m.top, m.right - m.left, m.bottom - m.top, SWP_FRAMECHANGED | SWP_SHOWWINDOW | SWP_NOZORDER | SWP_NOACTIVATE);
+        return true;
+    }
+    const was = before orelse return true;
+    before = null;
+    _ = SetWindowLongPtrW(hwnd, GWL_STYLE, was.style);
+    _ = SetWindowPos(
+        hwnd,
+        null,
+        was.rect.left,
+        was.rect.top,
+        was.rect.right - was.rect.left,
+        was.rect.bottom - was.rect.top,
+        SWP_FRAMECHANGED | SWP_SHOWWINDOW | SWP_NOZORDER | SWP_NOACTIVATE,
+    );
+    // A window that was maximized comes back maximized, not at the frame
+    // it happened to have when the picture went full screen.
+    if (was.zoomed) _ = ShowWindow(hwnd, SW_SHOWMAXIMIZED);
+    return true;
+}
+
+/// Whether our own full screen is on (the window may have been taken
+/// away by the system, e.g. Win+D -- then this says yes and the next
+/// frame puts it right).
+pub fn fullscreenOn(window_handle: *anyopaque) bool {
+    _ = window_handle;
+    if (builtin.os.tag != .windows) return false;
+    return before != null;
+}

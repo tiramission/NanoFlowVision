@@ -60,9 +60,18 @@
 | 大图信息块黑纱 | 不透明 `panel` 卡片 | 03 §7 已把它列为照片上的例外；白照片上黑纱不稳 |
 | 大图顶条只有序号/文件名/星 | 再加 info 与 close | 鼠标可达性；04 §8 原本就列了这两个按钮 |
 
-## 四、验证方式
+## 四、全屏看图（2026-11）
 
-- `zig build test`：101 个测试，覆盖行为（断言矩形或状态，不只断言文字存在）。
-- `docs/redesign/shots/`：17 张状态快照，由 `tests_shots.zig` 与 `tests_meta.zig`
+- `F11`、macOS 的 `⌃⌘F`、大图顶条的 expand chip；网格里进入会先打开游标那张。
+- `Esc` 的层级加了全屏一层；退出全屏保留大图，关掉大图也退出全屏。
+- 全屏 2.5s 无输入，顶条/胶片条/缩放 chip 收起、fit 扩到整屏；一动就回来（直接显隐，不淡入）。
+- 窗口：进入前记住矩形、样式与最大化；设置只写进入前的窗口；启动不恢复全屏。
+- 平台：Windows `WS_POPUP`（`src/win.zig`），macOS `toggleFullScreen:`，Linux 退化为最大化；
+  全部经 `src/screen.zig`，测试走替身，绝不碰 HWND。
+
+## 五、验证方式
+
+- `zig build test`：108 个测试，覆盖行为（断言矩形或状态，不只断言文字存在）。
+- `docs/redesign/shots/`：19 张状态快照，由 `tests_shots.zig` 与 `tests_meta.zig`
   渲染，`src/shots.zig` 压缩后写入。
 - 界面的旧样子见 `git log`（重新设计之前的琥珀方案没有保留文档，也不需要）。

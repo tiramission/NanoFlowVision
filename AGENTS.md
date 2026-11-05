@@ -61,6 +61,10 @@ build.zig       the app, `run` and `test` steps
 build.zig.zon   nanoui, zigimg and nfd, pinned
 src/main.zig    the window, and the folder to show
 src/app.zig     the state and its view: tree, the overlays, the settings
+src/library.zig reading a folder, the order it shows in, its places
+src/fullscreen.zig full screen: the window, and the quiet in that room
+src/screen.zig  full screen where the platform has it, maximize where not
+src/keys.zig    the keyboard map as data, in both languages
 src/shell.zig   the command bar: where you are, the search, its menus
 src/rail.zig    the folders down the left, with their counts
 src/gallery.zig the gallery: the grid, its scrolling, its keyboard
@@ -81,6 +85,7 @@ src/select.zig   the choice: a set of paths, a cursor, a marquee
 src/settings.zig the settings sheet, over kit's scrim
 src/statusbar.zig what is here, how heavy, where the cursor stands, the watch
 src/dialogs.zig  the folder that cannot be read, and the bin's second thought
+src/screen.zig    full screen where the platform has it, maximize where it does not
 src/shots.zig    compressed PNGs for the documented snapshots
 src/i18n.zig     the interface's words, in English and Chinese
 src/watch.zig    the folder watched, so the disk's changes arrive by themselves

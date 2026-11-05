@@ -70,6 +70,7 @@ toast（`kit.Toaster`）。层号沿用 kit，不自造。
 
 ## 能力边界（nanoui 0.6.4）
 
-没有右键、横向滚动、滚动条组件、拖放、全屏 API、系统「减弱动效」探测、a11y 树。
+没有右键、横向滚动、拖放、系统「减弱动效」探测、a11y 树；全屏 API 也没有，但
+应用自己接了（`src/screen.zig`：Windows `WS_POPUP`、macOS `toggleFullScreen:`、Linux 退化为最大化）。
 界面按这些边界设计：⋯ 角标替代右键，窗口式胶片条替代横向滚动，设置里的开关替代系统探测，
-键盘全可达 + 焦点可见替代 a11y 桥；全屏与拖放记在 [../../ROADMAP.md](../../ROADMAP.md)。
+键盘全可达 + 焦点可见替代 a11y 桥；拖放记在 [../../ROADMAP.md](../../ROADMAP.md)。

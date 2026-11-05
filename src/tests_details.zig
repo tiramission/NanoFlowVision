@@ -8,6 +8,7 @@ const nanoui = @import("nanoui");
 const ui = nanoui.ui;
 const app = @import("app.zig");
 const i18n = @import("i18n.zig");
+const fullscreen = @import("fullscreen.zig");
 const tests_mod = @import("tests.zig");
 
 test "the search is a keystroke away, and gives the wall back" {
@@ -242,4 +243,117 @@ test "the large view is a dark room, whatever the theme" {
     const g = pixels.bytes[at + 1];
     const r = pixels.bytes[at + 2];
     try std.testing.expect(@as(u32, r) + g + b < 160);
+}
+
+test "F11 takes the screen, and gives it back in the right order" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 4);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 1000, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+
+    // From the wall: the cursor's picture goes large, then the window.
+    t.key(.down);
+    t.settle(0.1);
+    t.key(.f11);
+    t.settle(0.2);
+    try std.testing.expect(state.large != null);
+    try std.testing.expect(state.fullscreen);
+
+    // F11 again: the window comes back, the picture stays large.
+    t.key(.f11);
+    t.settle(0.2);
+    try std.testing.expect(!state.fullscreen);
+    try std.testing.expect(state.large != null);
+
+    // And the Esc order inside full screen: window first, picture second.
+    t.key(.f11);
+    t.settle(0.2);
+    try std.testing.expect(state.fullscreen);
+    _ = t.shortcut(.{ .key = ui.Shortcut.escape });
+    t.settle(0.2);
+    try std.testing.expect(!state.fullscreen);
+    try std.testing.expect(state.large != null);
+    _ = t.shortcut(.{ .key = ui.Shortcut.escape });
+    t.settle(0.2);
+    try std.testing.expect(state.large == null);
+}
+
+test "an empty folder has nothing to go full screen with" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSample(gpa);
+    defer sample.deinit(gpa);
+    try sample.tmp.dir.createDirPath(std.testing.io, "void");
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 900, 600);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try t.clickText("void");
+    t.settle(0.2);
+    t.key(.f11);
+    t.settle(0.2);
+    try std.testing.expect(state.large == null);
+    try std.testing.expect(!state.fullscreen);
+}
+
+test "the chrome stands back in full screen, and comes back on a move" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 4);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 1000, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+
+    t.key(.down);
+    t.settle(0.1);
+    t.key(.f11);
+    t.settle(0.3);
+    try std.testing.expect(state.fullscreen);
+    try std.testing.expect(!state.chrome_hidden);
+    try std.testing.expect(t.hasText("1 / 4"));
+
+    // The timer's word arrives late; the clock decides.
+    state.last_activity = t.time - 3.0;
+    state.chrome_idle = true;
+    t.advance(0.1);
+    try std.testing.expect(state.chrome_hidden);
+    try std.testing.expect(!t.hasText("1 / 4"));
+
+    // The pointer moves: the chrome is back.
+    t.moveTo(20, 20);
+    t.settle(0.2);
+    try std.testing.expect(!state.chrome_hidden);
+    try std.testing.expect(t.hasText("1 / 4"));
+}
+
+test "the settings keep the window as it was before full screen" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSample(gpa);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+
+    // Without a window there is nothing to keep -- and with a full
+    // screen standing, the remembered frame is what is written, never
+    // the full-screen rectangle.
+    try std.testing.expect(fullscreen.frameForSettings(state) == null);
+    state.frame_before = .{ .x = 10, .y = 20, .width = 900, .height = 640 };
+    state.fullscreen = true;
+    const kept = fullscreen.frameForSettings(state).?;
+    try std.testing.expectEqual(@as(f64, 900), kept.width);
+    try std.testing.expectEqual(@as(f64, 10), kept.x);
 }

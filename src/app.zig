@@ -8,7 +8,6 @@ const kit = nanoui.kit;
 
 const masonry = @import("masonry.zig");
 const model = @import("model.zig");
-const scan = @import("scan.zig");
 const select = @import("select.zig");
 const dialogs = @import("dialogs.zig");
 const thumbs = @import("thumbs.zig");
@@ -19,6 +18,9 @@ const rail = @import("rail.zig");
 const shell = @import("shell.zig");
 const settings = @import("settings.zig");
 const statusbar = @import("statusbar.zig");
+const screen = @import("screen.zig");
+const fullscreen = @import("fullscreen.zig");
+const library = @import("library.zig");
 const ops = @import("ops.zig");
 const config = @import("config.zig");
 const watch = @import("watch.zig");
@@ -33,6 +35,9 @@ const gap: f32 = 6;
 const padding: f32 = 16;
 /// The ceiling the columns never pass; the density sets the target.
 const max_columns: usize = 12;
+
+/// A window's rectangle in points: the frame the settings keep
+/// while a full screen stands.
 
 /// The window's own name, when nothing else is being said in the title.
 pub const app_name = "NanoFlowVision";
@@ -182,6 +187,32 @@ pub const State = struct {
     /// fits), and where its picture is headed.
     zoom: ?f32 = null,
     zoom_target: ?f32 = null,
+    /// The window is full screen (or maximized where full screen does
+    /// not exist), and the chrome has gone quiet in that room.
+    fullscreen: bool = false,
+    /// The change to apply at the top of the next frame: a window's
+    /// style is not changed in the middle of a build.
+    fullscreen_pending: ?bool = null,
+    /// When the current full screen began, and when it was last asked
+    /// for: the Mac's animation is asynchronous and a second request
+    /// would fight it.
+    fullscreen_since: f64 = 0,
+    fullscreen_at: f64 = 0,
+    /// The window as it was before full screen: what the settings keep
+    /// (a full-screen frame must never be remembered as the window's).
+    frame_before: ?fullscreen.WindowRect = null,
+    maximized_before: bool = false,
+    /// The chrome has stood back in the full screen: the top bar, the
+    /// strip and the zoom chip are hidden, and the picture has the room.
+    chrome_hidden: bool = false,
+    /// A timer said the idle moment came; the view checks the clock
+    /// itself, so an early timer cannot hide the chrome.
+    chrome_idle: bool = false,
+    /// One quiet timer is enough; a second would only fire early.
+    chrome_timer_pending: bool = false,
+    last_activity: f64 = 0,
+    idle_mouse_x: f32 = 0,
+    idle_mouse_y: f32 = 0,
     /// Whether the large view's panel of facts is open.
     info_open: bool = true,
     /// The filmstrip's cells this frame, for the tests that click them.
@@ -239,86 +270,9 @@ pub const State = struct {
         s.gpa.destroy(s);
     }
 
-    /// The folders inside a folder, and its pictures. A folder already
-    /// loaded is left as it is unless a listing is asked for: the tree
-    /// keeps what the eye opened.
+    /// The folders inside a folder, and its pictures.
     fn loadChildren(s: *State, folder: *model.Folder) !void {
-        if (folder.loaded and !s.relist_pending) return;
-
-        var listing = try scan.list(s.gpa, s.io, folder.path);
-        defer listing.deinit(s.gpa);
-
-        var children: std.ArrayList(model.Folder) = .empty;
-        errdefer children.deinit(s.gpa);
-        for (listing.folders) |name| {
-            try children.append(s.gpa, .{
-                .path = try model.join(s.gpa, folder.path, name),
-                .name = try s.gpa.dupe(u8, name),
-                .depth = folder.depth + 1,
-            });
-        }
-
-        var pictures: std.ArrayList(model.Picture) = .empty;
-        errdefer pictures.deinit(s.gpa);
-        if (s.recursive) {
-            var paths: std.ArrayList([]u8) = .empty;
-            defer {
-                for (paths.items) |p| s.gpa.free(p);
-                paths.deinit(s.gpa);
-            }
-            try scan.listPictures(s.gpa, s.io, folder.path, true, 8, &paths);
-            for (paths.items) |p| {
-                try pictures.append(s.gpa, .{
-                    .path = try s.gpa.dupe(u8, p),
-                    .name = try s.gpa.dupe(u8, model.nameOf(p)),
-                });
-            }
-        } else {
-            for (listing.pictures) |name| {
-                try pictures.append(s.gpa, .{
-                    .path = try model.join(s.gpa, folder.path, name),
-                    .name = try s.gpa.dupe(u8, name),
-                });
-            }
-        }
-
-        // The folders keep their fold across the listing: what was open
-        // goes on being open, by name. The disk's changes read the tree
-        // again; the reader's open folders are not the disk's to close.
-        for (children.items) |*child| {
-            for (folder.children) |*old| {
-                if (std.mem.eql(u8, old.name, child.name)) child.expanded = old.expanded;
-            }
-        }
-
-        // The old goes out, the new goes in.
-        for (folder.children) |*child| child.deinit(s.gpa);
-        s.gpa.free(folder.children);
-        for (folder.pictures) |*p| p.deinit(s.gpa);
-        s.gpa.free(folder.pictures);
-        folder.children = try children.toOwnedSlice(s.gpa);
-        folder.pictures = try pictures.toOwnedSlice(s.gpa);
-        folder.loaded = true;
-
-        // The next level of folders is listed too, so a folder that holds
-        // folders shows its chevron before it is ever opened: one listing
-        // each, nothing decoded. The folder itself stays unloaded -- its
-        // pictures are listed only when it is opened.
-        for (folder.children) |*child| {
-            if (child.loaded or child.children.len > 0) continue;
-            var sub = scan.list(s.gpa, s.io, child.path) catch continue;
-            defer sub.deinit(s.gpa);
-            var subs: std.ArrayList(model.Folder) = .empty;
-            errdefer subs.deinit(s.gpa);
-            for (sub.folders) |name| {
-                try subs.append(s.gpa, .{
-                    .path = try model.join(s.gpa, child.path, name),
-                    .name = try s.gpa.dupe(u8, name),
-                    .depth = child.depth + 1,
-                });
-            }
-            child.children = try subs.toOwnedSlice(s.gpa);
-        }
+        return library.loadChildren(s, folder);
     }
 
     /// The folder changed on disk (a picture went to the bin, a paste
@@ -328,7 +282,7 @@ pub const State = struct {
         const folder = s.current orelse return;
         folder.loaded = false;
         s.listed_at = -1;
-        if (s.loadChildren(folder)) {
+        if (library.loadChildren(s, folder)) {
             s.folder_broken = false;
         } else |_| {
             // The folder went away under the eye: the view says so.
@@ -341,7 +295,7 @@ pub const State = struct {
 
     /// Shows a folder's pictures.
     pub fn open(s: *State, folder: *model.Folder) void {
-        if (s.loadChildren(folder)) {
+        if (library.loadChildren(s, folder)) {
             s.folder_broken = false;
         } else |_| {
             // Gone, or never was a folder: the view says so over an
@@ -371,12 +325,9 @@ pub const State = struct {
         s.watcher.start(folder.path);
     }
 
-    /// The sort or the search changed: the order follows, from the top,
-    /// and none of it costs a decode -- the cache is keyed by path.
+    /// The sort or the search changed: the order follows, from the top.
     pub fn orderChanged(s: *State) void {
-        s.order_version += 1;
-        s.laid_out_for = 0;
-        s.scroll_to_top = true;
+        library.orderChanged(s);
     }
 
     /// Dark or light, as the eye prefers. The window's surface is told
@@ -429,14 +380,18 @@ pub const State = struct {
             .lang = s.lang,
             .root = s.tree.path,
         };
-        if (s.window) |w| {
-            const f = w.frame();
+        if (fullscreen.frameForSettings(s)) |f| {
             st.x = f.x;
             st.y = f.y;
             st.width = f.width;
             st.height = f.height;
-            if (builtin.os.tag == .windows) {
-                if (w.hwnd) |hwnd| st.maximized = win.zoomed(@ptrCast(hwnd));
+            if (s.fullscreen) {
+                // The full-screen frame is not the window's.
+                st.maximized = s.maximized_before;
+            } else if (builtin.os.tag == .windows) {
+                if (s.window) |w| {
+                    if (w.hwnd) |hwnd| st.maximized = win.zoomed(@ptrCast(hwnd));
+                }
             }
         }
         config.save(s.io, dir, st);
@@ -446,89 +401,28 @@ pub const State = struct {
     /// search and sorted by the key. Pointers into the folder's list, so
     /// the pictures and their paths are neither copied nor changed.
     fn rebuildOrder(s: *State) void {
-        const folder = s.current orelse return;
-        const query = s.search.text();
-
-        var list: std.ArrayList(*model.Picture) = .empty;
-        defer list.deinit(s.gpa);
-        for (folder.pictures) |*pic| {
-            if (s.filter_stars > 0) {
-                // The filter says how many stars a picture carries: what
-                // is not measured yet says nothing, and waits outside.
-                const said = s.shared.measuredOf(pic.path) orelse continue;
-                if (said.rating < @as(i8, @intCast(s.filter_stars))) continue;
-            }
-            if (model.matchesFold(pic.name, query)) {
-                list.append(s.gpa, pic) catch return;
-            }
-        }
-
-        const Ctx = struct {
-            shared: *thumbs.Shared,
-            key: SortKey,
-            ascending: bool,
-            fn lessThan(ctx: @This(), a: *model.Picture, b: *model.Picture) bool {
-                const sa = ctx.shared.measuredOf(a.path) orelse thumbs.Measured{ .aspect = 1 };
-                const sb = ctx.shared.measuredOf(b.path) orelse thumbs.Measured{ .aspect = 1 };
-                const order: std.math.Order = switch (ctx.key) {
-                    .name => model.orderFold(a.name, b.name),
-                    .time => std.math.order(sa.mtime, sb.mtime),
-                    .size => std.math.order(sa.bytes, sb.bytes),
-                    .pixels => std.math.order(sa.pixels, sb.pixels),
-                    .stars => std.math.order(sa.rating, sb.rating),
-                };
-                // Pictures that tie go by their name, whatever the direction.
-                if (order == .eq) return model.orderFold(a.name, b.name) == .lt;
-                return if (ctx.ascending) order == .lt else order == .gt;
-            }
-        };
-        std.mem.sort(*model.Picture, list.items, Ctx{ .shared = &s.shared, .key = s.sort, .ascending = s.sort_ascending }, Ctx.lessThan);
-
-        const shown = s.gpa.dupe(*model.Picture, list.items) catch return;
-        s.gpa.free(s.shown);
-        s.shown = shown;
-        s.shown_version = s.order_version;
-        // The folder may have been listed again: the choice keeps what
-        // the disk still holds, and lets the rest go.
-        s.select.keepAlive(folder.pictures);
+        library.rebuildOrder(s);
     }
 
     /// The pictures' places, made once their sizes are known and again
     /// when the window or the order changes: never a move under the eye.
     pub fn updateLayout(s: *State, width: f32) void {
-        const current = s.current orelse return;
-        const pictures = current.pictures;
-        if (s.aspects.len != pictures.len) {
-            s.gpa.free(s.aspects);
-            s.aspects = s.gpa.alloc(f32, pictures.len) catch &.{};
-        }
-        if (s.shown_version != s.order_version) s.rebuildOrder();
-        // No room to speak of yet: the window is between sizes, or the
-        // grid's box has not been placed this frame. Laying out into
-        // nothing would leave a wall of placements with nowhere to stand,
-        // so this waits for a width it can use.
-        if (width < 2 * padding + 8) return;
-        if (width == s.laid_out_for and s.layout.placements.len == s.shown.len) return;
-        s.laid_out_for = width;
-
-        for (s.shown, 0..) |pic, i| {
-            s.aspects[i] = s.shared.aspectOf(pic.path) orelse 1;
-        }
-        // The density aims the columns at 128, 256 or 512 points tall.
-        const layout = masonry.compute(s.gpa, s.aspects[0..s.shown.len], width, .{
-            .columns = max_columns,
-            .target = s.density.row(),
-            .gap = gap,
-            .padding = padding,
-        }) catch return;
-        s.layout.deinit(s.gpa);
-        s.layout = layout;
+        library.updateLayout(s, width);
     }
 
     pub fn view(s: *State, c: *ui.Context) void {
         // What the settings asked for: no fades, no slides. Said before
         // anything below gets the chance to animate.
         if (s.reduce_motion) c.reduced_motion = true;
+        // The window is changed at the frame's top, never in the middle of
+        // a build; and the system's answer is read back once the full
+        // screen has had the time to move.
+        if (s.fullscreen_pending) |on| {
+            s.fullscreen_pending = null;
+            fullscreen.apply(s, c, on);
+        } else if (s.fullscreen and s.window != null and c.time - s.fullscreen_since > 1.0) {
+            if (!screen.isOn(s.window)) fullscreen.apply(s, c, false);
+        }
         // Dark or light, wherever the eye is.
         if (c.shortcut(.{ .key = 'd', .ctrl = true })) s.toggleDark();
         // The navigation column, folded away and back.
@@ -554,6 +448,11 @@ pub const State = struct {
         }
         if (c.shortcut(.{ .key = 'o', .ctrl = true })) shell.askForFolder(s);
         if (c.input.key == .f5) s.relist_pending = true;
+        // Full screen: the whole screen for one photograph.
+        if (c.input.key == .f11) fullscreen.toggle(s, c);
+        if (comptime builtin.os.tag == .macos) {
+            if (c.shortcut(.{ .key = 'f', .cmd = true, .ctrl = true })) fullscreen.toggle(s, c);
+        }
         if (c.shortcut(.{ .key = '/', .ctrl = true })) {
             s.keys_open = true;
             c.changed = true;
@@ -578,6 +477,9 @@ pub const State = struct {
         statusbar.title(s, c);
         if (s.large != null) {
             large.view(s, c);
+            // The large view was closed: a full screen of the wall is not a
+            // mode, so the window comes back with it.
+            if (s.large == null and s.fullscreen) s.fullscreen_pending = false;
             s.toaster.view(c);
             return;
         }

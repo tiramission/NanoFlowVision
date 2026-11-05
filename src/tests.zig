@@ -9,6 +9,7 @@ comptime {
     _ = @import("tests_view.zig");
     _ = @import("select.zig");
     _ = @import("tests_select.zig");
+    _ = @import("keys.zig");
     _ = @import("tests_details.zig");
     _ = @import("shots.zig");
     _ = @import("tests_shots.zig");

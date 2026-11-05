@@ -386,3 +386,75 @@ test "snapshot: the keys table" {
     try std.testing.expect(state.keys_open);
     try shots.shot(&t, "docs/redesign/shots/keys.png");
 }
+
+test "snapshot: full screen, the chrome at rest" {
+    try ensureDir();
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 6);
+    defer sample.deinit(gpa);
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 1280, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+    t.frame();
+    const where = state.first_picture orelse return error.NoPictureOnScreen;
+    t.doubleClick(where.x + where.w / 2, where.y + where.h / 2);
+    t.settle(0.3);
+    // The picture has the whole screen: the bars have stood back.
+    state.fullscreen = true;
+    state.chrome_hidden = true;
+    state.idle_mouse_x = t.ctx.input.mouse.x;
+    state.idle_mouse_y = t.ctx.input.mouse.y;
+    state.last_activity = t.time - 3.0;
+    t.settle(0.2);
+    try std.testing.expect(state.chrome_hidden);
+    try shots.shot(&t, "docs/redesign/shots/fullscreen.png");
+}
+
+test "snapshot: full screen, dark, with the facts" {
+    try ensureDir();
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const f = exif.Fixture.build(.little);
+    const jpeg = try tests_mod.exifJpeg(gpa, &f);
+    defer gpa.free(jpeg);
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "pic.jpg", .data = jpeg });
+    const cwd = try std.process.currentPathAlloc(std.testing.io, gpa);
+    defer gpa.free(cwd);
+    const path = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/tmp/{s}", .{ cwd, tmp.sub_path });
+    defer gpa.free(path);
+
+    const state = try app.State.create(gpa, std.testing.io, path);
+    defer state.deinit();
+    state.dark = true;
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 1280, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+    t.frame();
+    const where = state.first_picture orelse return error.NoPictureOnScreen;
+    t.doubleClick(where.x + where.w / 2, where.y + where.h / 2);
+    t.settle(0.3);
+    // The big pixels come from the worker: wait for them before the shot.
+    const key = try thumbs.largeKey(gpa, state.large.?.path);
+    defer gpa.free(key);
+    for (0..400) |_| {
+        t.frame();
+        if (state.shared.get(key)) |known| {
+            if (known.thumb != null) break;
+        }
+        std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake) catch {};
+    }
+    state.fullscreen = true;
+    state.chrome_hidden = true;
+    state.idle_mouse_x = t.ctx.input.mouse.x;
+    state.idle_mouse_y = t.ctx.input.mouse.y;
+    state.last_activity = t.time - 3.0;
+    t.settle(0.2);
+    try shots.shot(&t, "docs/redesign/shots/fullscreen-dark.png");
+}

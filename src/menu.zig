@@ -14,6 +14,7 @@ const large = @import("large.zig");
 const model = @import("model.zig");
 const ops = @import("ops.zig");
 const i18n = @import("i18n.zig");
+const keys = @import("keys.zig");
 
 /// The clipboard's files land in this folder, under names that do not
 /// collide, and the gallery lists them.
@@ -83,7 +84,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         // trouble, so the hand lands there on purpose.
         items[n] = .{ .label = tr.copy, .icon = "doc.on.doc", .shortcut = "⌘C" };
         n += 1;
-        items[n] = .{ .label = tr.trash_selected, .icon = "trash", .shortcut = i18n.delete_key, .danger = true };
+        items[n] = .{ .label = tr.trash_selected, .icon = "trash", .shortcut = keys.delete_key, .danger = true };
         n += 1;
     } else {
         const mp = s.menu_for.?;
@@ -99,7 +100,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         n += 1;
         items[n] = .{ .separator = true };
         n += 1;
-        items[n] = .{ .label = tr.to_bin, .icon = "trash", .shortcut = i18n.delete_key, .danger = true };
+        items[n] = .{ .label = tr.to_bin, .icon = "trash", .shortcut = keys.delete_key, .danger = true };
         n += 1;
     }
 

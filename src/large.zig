@@ -12,6 +12,7 @@ const kit = nanoui.kit;
 const app = @import("app.zig");
 const exif = @import("exif.zig");
 const filmstrip = @import("filmstrip.zig");
+const fullscreen = @import("fullscreen.zig");
 const model = @import("model.zig");
 const ops = @import("ops.zig");
 const theme = @import("theme.zig");
@@ -145,6 +146,9 @@ fn toggleZoom(s: *app.State) void {
 pub fn view(s: *app.State, c: *ui.Context) void {
     const k = theme.colors(s.dark);
     const pic = s.large orelse return;
+    // In full screen the chrome stands back after a moment of quiet;
+    // any movement brings it back.
+    fullscreen.noteInput(s, c);
     // The wheel zooms here: nothing in this view scrolls.
     c.wants_wheel = true;
     if (c.shortcut(.{ .key = ui.Shortcut.escape })) {
@@ -152,6 +156,11 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         if (s.tag_editing) {
             s.tag_editing = false;
             s.tag_field.clear();
+        } else if (s.fullscreen) {
+            // Full screen is the outer layer: Esc gives the window back
+            // and keeps the picture large.
+            s.fullscreen_pending = false;
+            c.changed = true;
         } else {
             close(s);
             return;
@@ -234,8 +243,8 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         //
         // The room leaves the bars alone: the fit is the space between the
         // top bar and the strip, so a picture is never shown under them.
-        const top_room: f32 = 44 + 16;
-        const bottom_room: f32 = filmstrip.strip_h + 16;
+        const top_room: f32 = if (s.chrome_hidden) 16 else 44 + 16;
+        const bottom_room: f32 = if (s.chrome_hidden) 16 else filmstrip.strip_h + 16;
         const room_w = c.size.w - 48;
         const room_h = c.size.h - top_room - bottom_room;
         const img_w: f32 = @floatFromInt(pixels.w);
@@ -335,11 +344,11 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             _ = ui.texture(c, .{ .width = .fill, .height = .fill }, texture, .{ 0, 0, 1, 1 }, 1);
         }
 
-        // The zoom, at the foot of the window and always there, just
-        // above the strip: at the fit it says so; zoomed, it says how
-        // much. A click on it, like the wheel's double click and `z`,
-        // makes fit and 1:1 change places.
-        {
+        // The zoom, at the foot of the window, just above the strip: at
+        // the fit it says so; zoomed, it says how much. A click on it,
+        // like the wheel's double click and `z`, makes fit and 1:1
+        // change places. Hidden with the rest of the chrome.
+        if (!s.chrome_hidden) {
             const chip = ui.div(c).absolute()
                 .offset(c.size.w - 122, c.size.h - filmstrip.strip_h - 48)
                 .px(12)
@@ -377,7 +386,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
     // keys -- and the two ways out of the way: the facts folded or shown,
     // and the view closed. It rides on the veil, so it reads on any
     // photograph under it.
-    {
+    if (!s.chrome_hidden) {
         const bar = ui.div(c).absolute().offset(0, 0).w(c.size.w).h(44)
             .row().itemsCenter().gap(12).px(16)
             .bg(k.scrim);
@@ -396,6 +405,8 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             }
             ui.spacer(c);
         }
+        const fs = barButton(c, "arrow.up.left.and.arrow.down.right", if (s.fullscreen) tr.exit_fullscreen else tr.fullscreen, s.fullscreen);
+        if (fs.clicked) fullscreen.toggle(s, c);
         const info = barButton(c, "info.circle", tr.info, s.info_open);
         if (info.clicked) s.info_open = !s.info_open;
         const shut = barButton(c, "xmark", tr.close_label, false);
@@ -409,7 +420,9 @@ pub fn view(s: *app.State, c: *ui.Context) void {
     // The strip: the gallery as it stands around this one, a click away,
     // with the wheel over it stepping along instead of zooming.
     s.filmstrip_at.clearRetainingCapacity();
-    if (filmstrip.view(s, c, at)) |i| show(s, s.shown[i]);
+    if (!s.chrome_hidden) {
+        if (filmstrip.view(s, c, at)) |i| show(s, s.shown[i]);
+    }
     // What the picture says about itself, in its panel card at the
     // corner: its camera, when it was taken, how, and what it means to
     // us. `i`, or a click on the panel's own mark, folds it to a single

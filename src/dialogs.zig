@@ -9,6 +9,7 @@ const kit = nanoui.kit;
 
 const app = @import("app.zig");
 const i18n = @import("i18n.zig");
+const keys = @import("keys.zig");
 const model = @import("model.zig");
 const ops = @import("ops.zig");
 const shell = @import("shell.zig");
@@ -25,7 +26,7 @@ pub fn keysDialog(s: *app.State, c: *ui.Context) void {
         .cancel = "",
         .width = 780,
     }) orelse return;
-    const groups = i18n.keyGroups(s.lang);
+    const groups = keys.forLang(@intFromEnum(s.lang));
     const split = @min(2, groups.len);
     ui.row(c, .{ .width = .fill, .gap = 40, .align_items = .start });
     var side: usize = 0;

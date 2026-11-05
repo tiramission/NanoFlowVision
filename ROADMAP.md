@@ -23,20 +23,19 @@
 | **justified / grid 两种布局** | 现在只有瀑布流；`masonry.zig` 的两个兄弟算法，密度钮旁加切换 |
 | **标签筛选** | `exif.Meta` 已有 tags；需把 tags 放进 `thumbs.Measured` 再过滤 |
 | **列表视图** | `ui.list` 虚拟化，行高 28：文件名/尺寸/星级；密度钮旁切换 |
-| **大图浮层自动隐藏** | 指针静止 2.5s 后淡出顶条与胶片条；需要运动时钟与“指针在浮层上”判定 |
 | **⌘+滚轮改密度** | 设计草稿里有，没落地；网格滚轮目前只滚动 |
 | **监视暂停态** | `watch.zig` 的读错误目前被当作“没有变化”；要暴露状态给状态条（黄点 + F5） |
 | **非 JPEG 的评分写回** | `xmp.zig` 只会重建 JPEG 段；PNG/HEIC 的容器写法另列 |
 | **撤销删除** | 依赖 `ops.restore`（Windows 的 Shell API），当前只承诺“可在回收站恢复” |
 | **拖出到资源管理器** | 依赖 nanoui 的拖放 API（目前没有） |
-| **全屏看片** | 依赖 `Window.setFullscreen`（目前没有） |
 | **a11y 树** | 依赖 nanoui 的平台无障碍桥；当前用键盘全可达 + 焦点可见替代 |
 
 ## 平台债
 
 - **macOS**：`src/imageio.zig` 编译过声明、未上机实测；目录监听要 FSEvents；
   `ops.zig` 的文件剪贴板（CF_HDROP 的 mac 等价物）是 TODO。
-- **Linux**：目录监听要 inotify；解码是 zigimg 兜底（接受它的内存）。
+- **Linux**：目录监听要 inotify；解码是 zigimg 兜底（接受它的内存）；
+  全屏看图退化为最大化（nanoui 没有 X11/Wayland 全屏 API）。
 
 ## 造轮子清单（能用库的地方不用库）
 

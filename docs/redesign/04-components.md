@@ -217,11 +217,13 @@ div (absolute, offset=place, w, h, 圆角 4, clip)
 
 ```
 div (fixed, sizeFull, bg=room)          ← 固定深色房间：亮房也是 #111214（照片→同一个场）
-├── 照片框（absolute 居中 + 平移，w/h = 图片像素 × zoom，亮房 1px line2 + shadowMd）
-├── 顶部条 h=44（常驻：序号、文件名、星、info/close chip）
+├── 照片框（absolute 居中 + 平移，w/h = 图片像素 × zoom；不描边，深房间里也没有投影）
+├── 顶部条 h=44（常驻：序号、文件名、星、fullscreen/info/close chip）
 │   左：3 / 12（12 mono ink2）+ 文件名（13 ink）
-│   右：★★★★★（可点的星行，16，空星 = 白 45%、已评 = grade）+ info.circle 28×28 + xmark 28×28
-│       两枚 chip 都在纱底上，悬停白 16% 底，带 tooltip；xmark 关闭大图
+│   右：★★★★★（可点的星行，16，空星 = 白 45%、已评 = grade）
+│       + arrow.up.left.and.arrow.down.right（全屏）+ info.circle + xmark，各 28×28
+│       三枚 chip 都在纱底上，悬停白 16% 底，带 tooltip；xmark 关闭大图
+│   全屏且 2.5s 无输入时：顶条、胶片条、缩放 chip 一起收起，fit 扩到整屏（见 02 §12）
 ├── 胶片条 h=76（与顶部条同生共死）
 │   窗口式：当前居中，左右各 7 张；缩略 48 高（宽度 = 48×aspect，44–96）
 │   当前项：2px 白环 + 不透明（房间恒深，accent 在亮房里会是黑的）；其他：opacity 0.7；不足 15 张则只画有的
@@ -341,6 +343,7 @@ if (kit.dialog(c, "trash", &s.trash_confirm, .{
 | 选择 / 游标 / 框选 | `src/select.zig` | `s.select` 直接读 |
 | 大图、顶部条、信息卡片 | `src/large.zig` | `s.large` / `s.large_close_at` |
 | 胶片条 | `src/filmstrip.zig` | `s.filmstrip_at`（每帧写出的格子矩形） |
+| 全屏与窗口 | `src/screen.zig` / `src/win.zig` | `s.fullscreen` / `s.chrome_hidden` / `s.frame_before`；测试不碰 HWND |
 | 菜单 / 重命名 / 确认框 | `src/menu.zig` / `src/dialogs.zig` | 断言文本与 `t.clickText` |
 | toast | `src/app.zig`（`State.toaster`） | `t.hasText("已移到回收站")` |
 | 设置 | `src/settings.zig` | 断言分段控件与 `config` 往返 |
