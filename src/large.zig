@@ -122,10 +122,10 @@ fn save(s: *app.State, pic: *model.Picture, m: *const exif.Meta) void {
     s.shared.setMeta(pic.path, m.*);
 }
 
-/// How long a press must be still before it is a look rather than the
-/// start of a drag. Long enough that a hand moving the picture never
-/// reaches it, short enough to feel like the button itself.
-const peek_delay: f64 = 0.15;
+/// How far the pointer may travel while a press is still a look. One
+/// point, the smallest movement a hand makes on purpose: a click that
+/// wobbles is a look, a press that is meant to drag leaves it at once.
+const peek_slop: f32 = 1.0;
 
 /// The button held down for a look, as the mode it shows: the left one
 /// at 1:1 about the pointer, the right one fitting the picture to the
@@ -133,20 +133,25 @@ const peek_delay: f64 = 0.15;
 /// photograph -- a press on the top bar's stars is a press on a star, not
 /// a look.
 ///
-/// Both buttons give the look from any mode, a wheel-zoomed one included:
-/// what the reader wants to know is how the picture looks at its own
-/// pixels or fitted, and that question does not depend on where the wheel
-/// left it. The left button shares its press with the drag, so the look
-/// waits until the press has been still; a press that moves is a drag and
-/// never becomes a look.
+/// Both buttons look from the moment they go down, in any mode, a
+/// wheel-zoomed one included: the question is how the picture looks at its
+/// own pixels or fitted, and that does not depend on where the wheel left
+/// it. Waiting for the press to prove itself still made the left button
+/// feel unlike the right one -- and it needed frames to keep arriving, so
+/// a press held without moving waited for the next mouse movement instead
+/// of its own delay. The look begins at once; a press that turns out to be
+/// a drag ends it and takes over, which is a thing the hand decides, not
+/// a clock.
 fn peekMode(s: *app.State, c: *ui.Context) ?app.ZoomMode {
     // A look already begun keeps itself, wherever the picture moved to:
     // the pointer was on the photograph when the press started, and asking
     // again would end it the moment a 1:1 picture shrank from under the
     // hand.
     if (s.peek) |held| {
+        // A hand that moves has taken over: the look ends, the drag it
+        // became continues from the picture the reader is looking at.
         return switch (held.mode) {
-            .actual => if (c.input.down and !c.input.secondary_down) .actual else null,
+            .actual => if (c.input.down and !c.input.secondary_down and !s.press_moved) .actual else null,
             .fit => if (c.input.secondary_down) .fit else null,
             else => null,
         };
@@ -155,12 +160,10 @@ fn peekMode(s: *app.State, c: *ui.Context) ?app.ZoomMode {
     if (at.w <= 0 or at.h <= 0) return null;
     const m = c.input.mouse;
     if (m.x < at.x or m.x >= at.x + at.w or m.y < at.y or m.y >= at.y + at.h) return null;
-    // The right button is nobody else's: it looks from the moment it goes
-    // down.
     if (c.input.secondary_down) return .fit;
-    // The left button is the drag's too. Stillness is what tells them
-    // apart.
-    if (c.input.down and !c.input.secondary_down and !s.press_moved and c.time - s.pressed_at >= peek_delay) return .actual;
+    // The left button looks until the hand moves. A drag has begun by then,
+    // and the drag is what the press was for.
+    if (c.input.down and !c.input.secondary_down and !s.press_moved) return .actual;
     return null;
 }
 
@@ -289,19 +292,16 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         // The press's state, read before the frame is built: a press that
         // has moved is a drag, and the drag has to reach `step` this frame,
         // not the next one. A press that has not moved is the start of a
-        // look, and `pressed_at` is when it began.
+        // look, and `press_moved` says whether the hand has taken over.
         var drag: ?ui.Point = null;
         if (c.input.down and !c.input.secondary_down) {
             // The press's own frame: the clock starts here, and nothing has
             // moved yet.
-            if (c.input.pressed or !s.panning) {
-                s.pressed_at = c.time;
-                s.press_moved = false;
-            }
+            if (c.input.pressed or !s.panning) s.press_moved = false;
             if (s.panning) {
                 const dx = c.input.mouse.x - s.last_mouse_x;
                 const dy = c.input.mouse.y - s.last_mouse_y;
-                if (@abs(dx) > 1 or @abs(dy) > 1) s.press_moved = true;
+                if (@abs(dx) > peek_slop or @abs(dy) > peek_slop) s.press_moved = true;
                 if (s.press_moved) drag = .{ .x = dx, .y = dy };
             }
             s.panning = true;

@@ -55,7 +55,7 @@ const en_keys = [_]KeyGroup{
         .{ .keys = "I", .what = "Fold the facts" },
         .{ .keys = delete_key, .what = "Bin it, then the next" },
         .{ .keys = "Wheel / drag", .what = "Zoom / pan" },
-        .{ .keys = "LMB hold", .what = "Look at 1:1 under the pointer" },
+        .{ .keys = "LMB hold", .what = "Look at 1:1 under the pointer (drag to pan)" },
         .{ .keys = "RMB hold", .what = "Look at it fitted to the window" },
     } },
     .{ .title = "Sidebar", .rows = &.{

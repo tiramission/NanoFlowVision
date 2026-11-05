@@ -233,12 +233,9 @@ pub const State = struct {
     panning: bool = false,
     last_mouse_x: f32 = 0,
     last_mouse_y: f32 = 0,
-    /// When the left button went down on the photograph, and whether it has
-    /// moved since. A look at 1:1 waits until the press has been still for
-    /// a moment: a drag begins with the same press, and a picture the wheel
-    /// has already zoomed has to stay draggable -- so stillness, not the
-    /// button alone, is what asks for the look.
-    pressed_at: f64 = 0,
+    /// Whether the press that began a look has moved since. The look is
+    /// the left button's until the hand moves; a press that travels is a
+    /// drag, and the drag takes over.
     press_moved: bool = false,
     /// The window is full screen (or maximized where full screen does
     /// not exist), and the change to apply at the top of the next frame

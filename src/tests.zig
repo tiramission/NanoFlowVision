@@ -12,6 +12,7 @@ comptime {
     _ = @import("keys.zig");
     _ = @import("tests_details.zig");
     _ = @import("tests_zoom.zig");
+    _ = @import("tests_peek.zig");
     _ = @import("shots.zig");
     _ = @import("tests_gpu.zig");
     _ = @import("tests_shots.zig");
