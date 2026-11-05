@@ -64,11 +64,9 @@ pub const bar_height: f32 = 44;
 const crumbs_narrow: f32 = 760;
 
 pub fn treeKeys(s: *app.State, c: *ui.Context) void {
-    if (c.input.key == .tab) {
-        s.tree_focus = if (s.tree_focus == null) firstVisible(&s.tree) else null;
-        c.changed = true;
-        return;
-    }
+    // Tab belongs to nanoui's focus ring: the rail is a stop in it, and
+    // the ring tells the rail whether it holds the keyboard (see
+    // `rail.view`). Nothing here takes the key.
     const focus = s.tree_focus orelse return;
     if (c.input.key) |k| switch (k) {
         .up, .down => {
@@ -113,7 +111,7 @@ pub fn treeKeys(s: *app.State, c: *ui.Context) void {
 }
 
 /// The first folder the tree shows, for the Tab that hands the focus in.
-fn firstVisible(folder: *model.Folder) ?*model.Folder {
+pub fn firstVisible(folder: *model.Folder) ?*model.Folder {
     if (folder.children.len == 0) return null;
     return &folder.children[0];
 }

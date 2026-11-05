@@ -15,18 +15,20 @@
 结论：文件数量不是问题，照片尺寸才是——所以解码走系统缩略图器（WIC / ImageIO），
 24 MP 的照片从不整幅进内存。
 
-大图缩放的帧成本（Windows CPU 光栅，1280×800 窗口、2x 像素密度，2048 边长的大图）：
+大图缩放的帧成本（Windows，1280×800 窗口、2x 像素密度，2048 边长的大图）：
 
-| 构建 | 大图一帧 | 帧率上限 |
+| 构建 / 渲染器 | 大图一帧 | 帧率上限 |
 |---|---|---|
-| Debug（旧默认） | 94–305 ms | 3–10 fps |
-| ReleaseSafe | 30–38 ms | 26–33 fps |
-| ReleaseFast（现默认） | 19–25 ms | 40–50 fps |
-| 网格（无大图，参考） | 6 ms | — |
+| Debug，CPU 光栅（旧默认） | 94–305 ms | 3–10 fps |
+| ReleaseSafe，CPU 光栅 | 30–38 ms | 26–33 fps |
+| ReleaseFast，CPU 光栅 | 19–25 ms | 40–50 fps |
+| ReleaseFast，**Direct3D 11**（v0.9.2） | 未测（需要真实窗口） | 应受刷新率限制 |
+| 网格（无大图，CPU，参考） | 6 ms | — |
 
-成本几乎全在“每屏幕像素 4 个采样点”的双线性光栅上，与纹理大小无关
-（换成 256 边长的缩略图一样慢）。所以 `zig build` 默认改成 ReleaseFast；
-再往下要动 nanoui 的光栅（SIMD、移动时的最近邻快路径）或 Windows 的 GPU 渲染器。
+CPU 那条的成本几乎全在“每屏幕像素 4 个采样点”的双线性光栅上，与纹理大小无关
+（换成 256 边长的缩略图一样慢）。nanoui v0.9.2 在 Windows 上加了 Direct3D 11
+渲染器（`src/ui/d3d11.zig`，同一批 instance 一次 instanced draw），应用换到 0.9.2
+后自动走 GPU；`NANOUI_NO_D3D=1` 可退回 CPU 光栅做对比。
 
 ## 还没做的
 
@@ -40,13 +42,16 @@
 | **监视暂停态** | `watch.zig` 的读错误目前被当作“没有变化”；要暴露状态给状态条（黄点 + F5） |
 | **非 JPEG 的评分写回** | `xmp.zig` 只会重建 JPEG 段；PNG/HEIC 的容器写法另列 |
 | **撤销删除** | 依赖 `ops.restore`（Windows 的 Shell API），当前只承诺“可在回收站恢复” |
-| **拖出到资源管理器** | 依赖 nanoui 的拖放 API（目前没有） |
-| **a11y 树** | 依赖 nanoui 的平台无障碍桥；当前用键盘全可达 + 焦点可见替代 |
+| **拖出到资源管理器** | nanoui 0.9 有了 `Input.drop`；要把 `Div.acceptsDrop` 接到 `ops` 上 |
+| **Windows 无障碍** | nanoui 0.9 的 `ui.access` 只有 macOS/iOS；等 Windows 那一侧 |
+| **右键菜单** | nanoui 0.9 有了 `right_clicked`；⋯ chip 已经够用，接右键是可选 |
+| **胶片条横向滚动** | nanoui 0.9 有了 `Style.scroll_x`；现在的窗口式胶片条先留着 |
 
 ## 平台债
 
 - **macOS**：`src/imageio.zig` 编译过声明、未上机实测；目录监听要 FSEvents；
   `ops.zig` 的文件剪贴板（CF_HDROP 的 mac 等价物）是 TODO。
+
 - **Linux**：目录监听要 inotify；解码是 zigimg 兜底（接受它的内存）；
   全屏看图退化为最大化（nanoui 没有 X11/Wayland 全屏 API）。
 

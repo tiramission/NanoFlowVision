@@ -36,7 +36,14 @@ pub fn view(s: *app.State, c: *ui.Context, pic: *model.Picture, place: masonry.P
     // A single click speaks to the choice: plain, it chooses this one;
     // with the adding key it joins or leaves; with shift it grows the
     // range from the anchor.
-    if (inter.clicked) {
+    //
+    // nanoui v0.9 reads Control+left as a context-menu press, so a
+    // Control click arrives as `right_clicked`, not `clicked`. The
+    // adding key keeps its meaning here: a Control click toggles.
+    if (inter.right_clicked and c.input.button == .left and c.input.ctrl) {
+        s.select.toggle(pic, index);
+        c.changed = true;
+    } else if (inter.clicked) {
         if (c.input.adding()) {
             s.select.toggle(pic, index);
         } else if (c.input.shift) {

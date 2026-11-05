@@ -20,6 +20,19 @@ pub fn view(s: *app.State, c: *ui.Context) void {
     shell.treeKeys(s, c);
     const side = ui.div(c).column().w(s.rail_w).hFull().bg(k.sidebar).px(10).gap(2);
     defer side.end();
+    // The rail is one of the two stops in the focus ring: Tab lands here,
+    // and the arrows walk the tree. Its id is asked for before the box
+    // opens, so the row itself can show the ring.
+    const rail_index = c.stack.items[c.stack.items.len - 1];
+    const rail_id = c.node(rail_index).id;
+    _ = c.interact(rail_index, .{ .focusable = true });
+    if (s.tree_focus == null and c.focus == rail_id) {
+        s.tree_focus = shell.firstVisible(&s.tree) orelse &s.tree;
+        c.changed = true;
+    } else if (s.tree_focus != null and c.focus != rail_id) {
+        s.tree_focus = null;
+        c.changed = true;
+    }
     {
         const top = ui.div(c).row().wFull().h(44).itemsCenter().gap(8).px(6);
         defer top.end();

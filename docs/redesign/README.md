@@ -68,7 +68,7 @@ toast（`kit.Toaster`）。层号沿用 kit，不自造。
 | D7 | 不做右键菜单 | nanoui 的 `Input` 没有按键位；⋯ 角标 + 快捷键是替代 |
 | D8 | 不做拖出到资源管理器、不做撤销删除 | `ops.zig` 没有拖放与 restore；删除只承诺「已移到回收站」 |
 
-## 能力边界（nanoui 0.6.4）
+## 能力边界（nanoui v0.9.2）
 
 没有右键、横向滚动、拖放、系统「减弱动效」探测、a11y 树；全屏 API 也没有，但
 应用自己接了（`src/screen.zig`：Windows `WS_POPUP`、macOS `toggleFullScreen:`、Linux 退化为最大化）。

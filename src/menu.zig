@@ -188,7 +188,7 @@ fn renameDialog(s: *app.State, c: *ui.Context) void {
 /// Puts the new name on the file, and into the tree, the gallery and the
 /// cache. A name that is taken keeps the box up, with the word beside
 /// the field; anything else that fails says so and closes.
-fn tryRename(s: *app.State) void {
+pub fn tryRename(s: *app.State) void {
     const rp = s.renaming orelse return;
     const new_name = std.mem.trim(u8, s.rename_field.text(), " ");
     if (new_name.len == 0 or std.mem.eql(u8, new_name, rp.name)) {

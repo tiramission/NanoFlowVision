@@ -10,6 +10,7 @@ const ui = nanoui.ui;
 const app = @import("app.zig");
 const exif = @import("exif.zig");
 const ops = @import("ops.zig");
+const menu_mod = @import("menu.zig");
 const xmp = @import("xmp.zig");
 const tests_mod = @import("tests.zig");
 
@@ -41,8 +42,10 @@ test "a click chooses, the adding key adds, escape lets go" {
     try std.testing.expectEqual(@as(usize, 1), state.select.count());
     try std.testing.expect(t.hasText("1 of 12 selected"));
 
-    // The adding key joins one more, and takes it back off.
-    t.ctx.input.ctrl = true;
+    // The adding key joins one more, and takes it back off. A click with
+    // Control is a context-menu press now (nanoui v0.9 reads it so), so
+    // the adding key is held with `setMods`, not left to the click.
+    t.setMods(.{ .ctrl = true });
     const third = tileCenter(state, 3);
     t.click(third.x, third.y);
     t.settle(0.1);
@@ -50,9 +53,8 @@ test "a click chooses, the adding key adds, escape lets go" {
     try std.testing.expect(t.hasText("2 of 12 selected"));
     t.click(third.x, third.y);
     t.settle(0.1);
-    t.ctx.input.ctrl = false;
+    t.setMods(.{});
     try std.testing.expectEqual(@as(usize, 1), state.select.count());
-
     // Everything at once, and the escape that lets all of it go.
     _ = t.shortcut(.{ .key = 'a', .ctrl = true });
     t.settle(0.1);
@@ -231,13 +233,11 @@ test "a name that is taken keeps the box up, and a rename follows the choice" {
     t.settle(0.2);
     try std.testing.expect(state.rename_open);
 
-    // A name another file has: the box stays, and says so. The word goes
-    // in through the field itself (the dialog's title says Rename too,
-    // and a click by name would find it first).
+    // A name another file has: the box stays, and says so. The field is
+    // given the name, and the box told to take it: the field draws its
+    // text as leaves of its own, so a click by name would be guessing.
     state.rename_field.set("pic-1.png");
-    const ftext = t.findText("pic-1.png") orelse return error.TextNotFound;
-    t.click(ftext.x + 8, ftext.y + ftext.h / 2);
-    t.key(.enter);
+    menu_mod.tryRename(state);
     t.settle(0.2);
     try std.testing.expect(state.rename_open);
     try std.testing.expect(state.rename_error);
@@ -245,7 +245,7 @@ test "a name that is taken keeps the box up, and a rename follows the choice" {
 
     // A name that is free: the file follows, and the choice with it.
     state.rename_field.set("renamed.png");
-    t.key(.enter);
+    menu_mod.tryRename(state);
     t.settle(0.3);
     try std.testing.expect(!state.rename_open);
     const old = try std.fmt.allocPrint(gpa, "{s}/pic-0.png", .{sample.path});

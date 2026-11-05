@@ -431,6 +431,14 @@ pub const State = struct {
         // What the settings asked for: no fades, no slides. Said before
         // anything below gets the chance to animate.
         if (s.reduce_motion) c.reduced_motion = true;
+        // Tab walks the focus ring (rail, the search field, the grid).
+        // A window's events do this before the view sees the key; the
+        // offscreen tester does not, so the same step is taken here.
+        if (c.input.key == .tab and c.input.ops.len == 0) {
+            c.focusCycle(c.input.shift);
+            c.input.key = null;
+            c.changed = true;
+        }
         // The window is changed at the frame's top, never in the middle of
         // a build; and the system's answer is read back once the full
         // screen has had the time to move.

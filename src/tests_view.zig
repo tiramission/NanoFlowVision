@@ -273,8 +273,9 @@ test "the tree takes the keyboard, and gives it back" {
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
 
-    // Tab: the tree has the keyboard, on its first row.
     t.key(.tab);
+    t.settle(0.1);
+    try std.testing.expect(state.tree_focus != null);
     t.settle(0.1);
     try std.testing.expect(state.tree_focus != null);
     try std.testing.expectEqualStrings("album", state.tree_focus.?.name);
@@ -295,6 +296,8 @@ test "the tree takes the keyboard, and gives it back" {
 
     // Tab again: the keyboard is the grid's, and the arrows walk it.
     t.key(.tab);
+    t.settle(0.1);
+    try std.testing.expect(state.tree_focus == null);
     t.settle(0.1);
     try std.testing.expect(state.tree_focus == null);
     const before = state.select.cursor;

@@ -52,6 +52,9 @@ fn viewGrid(s: *app.State, c: *ui.Context) void {
     {
         gridKeys(s, c);
     }
+    // The grid is the focus ring's other stop: a click anywhere on the wall
+    // puts the ring here, and the arrows walk it.
+    _ = c.interact(c.stack.items[c.stack.items.len - 1], .{ .focusable = true });
     if (c.shortcut(.{ .key = 'v', .ctrl = true })) menu.paste(s);
     const id = c.peekId(null);
     _ = c.open(.{
