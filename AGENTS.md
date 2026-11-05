@@ -19,6 +19,10 @@ nui doctor                      # check Zig and the platform
 
 Every command takes `--json` for output a program can read.
 
+The interface is rasterized on the CPU, so `zig build` defaults to
+`ReleaseFast` and tests keep their debug checks: `-Doptimize=Debug` for an
+unoptimized app, `-Dtest-optimize=ReleaseFast` for optimized tests.
+
 Without `nui` on the PATH, the same thing works:
 
 ```sh

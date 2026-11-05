@@ -65,11 +65,15 @@ macOS 用 Metal）。
 需要 Zig 0.17.0。
 
 ```sh
-zig build                                  # 编译
+zig build                                  # 编译（默认 ReleaseFast）
 zig build test                             # 测试（离屏渲染，不弹窗）
 zig-out/bin/nanoflowvision.exe             # 打开窗口
 zig-out/bin/nanoflowvision.exe D:\Photos   # 直接看某个文件夹
 ```
+
+界面是用 CPU 画的，大图缩放一帧要光栅化二百多万像素（1280×800 @2x）：`zig build` 因此默认
+`ReleaseFast`（未优化时慢约 5 倍，缩放会像幻灯片）。调试用 `-Doptimize=Debug`，
+测试用 `-Dtest-optimize=ReleaseFast` 或 `-Dtest-optimize=Debug`。
 
 不装 `nui` 也能做离屏检查：
 

@@ -2,7 +2,12 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+    // The interface is drawn on the CPU: a frame of the large view costs
+    // about 4 ns a pixel there, and an unoptimized build is five times
+    // slower -- the difference between a smooth zoom and a slide show.
+    // `-Doptimize` still takes any mode. Tests keep their debug checks.
+    const optimize = b.option(std.builtin.Optimize, "optimize", "the app's optimization (default ReleaseFast)") orelse .fast;
+    const test_optimize = b.option(std.builtin.Optimize, "test-optimize", "the tests' optimization (default Debug)") orelse .debug;
     // `-Dtest-filter=words` runs only the tests whose name says them:
     // one flaky test found, without waiting on the whole wall.
     const filter = b.option([]const u8, "test-filter", "only run tests whose name contains this") orelse "";
@@ -28,7 +33,7 @@ pub fn build(b: *std.Build) void {
     const tests = b.addTest(.{ .root_module = b.createModule(.{
         .root_source_file = b.path("src/tests.zig"),
         .target = target,
-        .optimize = optimize,
+        .optimize = test_optimize,
         .imports = imports,
     }), .filters = &.{filter} });
 

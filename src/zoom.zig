@@ -75,7 +75,7 @@ pub fn step(s: *app.State, c: *ui.Context, room: Room, wheel: f32, toggle_fit: b
     // Only the zoom eases; the pan is derived from it, so the anchor point
     // sits under the pointer at every step of the way instead of the pan
     // and the zoom easing separately and drifting apart.
-    const zoom = c.animate(zoom_anim, 0, s.zoom_target orelse room.fit, 12);
+    const zoom = c.animate(zoom_anim, 0, s.zoom_target orelse room.fit, 20);
     s.zoom = zoom;
     if (s.anchor) |a| {
         const bw = room.img_w * zoom;
