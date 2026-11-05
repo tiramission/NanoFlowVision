@@ -50,6 +50,8 @@
   Windows/Linux 上 Backspace 记为 `Del`（mono 字体没有 ⌫）。
 - 大图：滚轮缩放改为以指针为锚（`anchor` + 每帧反解 pan）；之前 pan 与 zoom
   分别缓动、且按目标 zoom 反解，连续滚轮或在缓动中滚轮时锚点会漂。
+- 大图：缩放进成四个模式（fit / fill / 1:1 / free），“铺满”是新的一种；
+  `Z` 是适应⇄1:1，`F` 是铺满⇄1:1，chip 点击在三者间循环。缩放键不再只对 JPEG 开放。
 - 大图：房间固定为深色（`room`，亮房 `#111214`），照片始终在同一个中性深底上判断；
   等待/失败的文字改用 `room_muted`，不再借用主题的次要色。
 
@@ -73,7 +75,7 @@
 
 ## 五、验证方式
 
-- `zig build test`：110 个测试，覆盖行为（断言矩形或状态，不只断言文字存在）。
-- `docs/redesign/shots/`：19 张状态快照，由 `tests_shots.zig` 与 `tests_meta.zig`
+- `zig build test`：113 个测试，覆盖行为（断言矩形或状态，不只断言文字存在）。
+- `docs/redesign/shots/`：20 张状态快照，由 `tests_shots.zig` 与 `tests_meta.zig`
   渲染，`src/shots.zig` 压缩后写入。
 - 界面的旧样子见 `git log`（重新设计之前的琥珀方案没有保留文档，也不需要）。

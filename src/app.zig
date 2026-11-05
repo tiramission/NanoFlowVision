@@ -39,6 +39,10 @@ const max_columns: usize = 12;
 /// A window's rectangle in points: the frame the settings keep
 /// while a full screen stands.
 
+/// How the large view sizes the picture: fitted in the room, filling it
+/// (cropped), at its own pixels, or wherever the wheel left it.
+pub const ZoomMode = enum { fit, fill, actual, free };
+
 /// The window's own name, when nothing else is being said in the title.
 pub const app_name = "NanoFlowVision";
 
@@ -183,10 +187,12 @@ pub const State = struct {
     /// What the window's title is currently saying about the measuring:
     /// null is the plain name. Only the changes reach the window.
     title_percent: ?usize = null,
-    /// The large view's zoom: what the frame draws (points per picture
-    /// pixel), and what it is headed for (null fits). They differ while
-    /// the easing runs; anything that must stay put under the pointer
-    /// reads `zoom`, never the target.
+    /// The large view's zoom: the mode it is in, what the frame draws
+    /// (points per picture pixel), and where it is headed (null fits).
+    /// They differ while the easing runs; anything that must stay put
+    /// under the pointer reads `zoom`, never the target. `anchor` is the
+    /// picture-space point (0..1) that stays under `anchor_mouse`.
+    zoom_mode: ZoomMode = .fit,
     zoom: f32 = 1,
     zoom_target: ?f32 = null,
     /// Where the picture sits in the room, in points from its own centre.

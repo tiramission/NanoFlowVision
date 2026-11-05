@@ -165,9 +165,10 @@ test "snapshot: the large view, zoomed, facts open" {
     // About 240%: the target set, the anchor in the middle, and the
     // easing given its frames. The facts stand open -- the exif gives
     // them something to say.
+    state.zoom_mode = .free;
+    state.zoom_target = 2.4;
     state.anchor = .{ .x = 0.5, .y = 0.5 };
     state.anchor_mouse = .{ .x = 640, .y = 400 };
-    state.zoom_target = 2.4;
     try std.testing.expect(state.info_open);
     t.settle(0.6);
     try shots.shot(&t, "docs/redesign/shots/lightbox-zoom.png");
@@ -460,4 +461,48 @@ test "snapshot: full screen, dark, with the facts" {
     try std.testing.expect(state.chrome_hidden);
     try std.testing.expectEqual(@as(f32, 0), fullscreen.chromeOpacity(state));
     try shots.shot(&t, "docs/redesign/shots/fullscreen-dark.png");
+}
+
+test "snapshot: filled, the picture covers the room" {
+    try ensureDir();
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    // A photograph, not a square: filling crops its sides, and that is
+    // what the picture should show.
+    const f = exif.Fixture.build(.little);
+    const jpeg = try tests_mod.exifJpeg(gpa, &f);
+    defer gpa.free(jpeg);
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "pic.jpg", .data = jpeg });
+    const cwd = try std.process.currentPathAlloc(std.testing.io, gpa);
+    defer gpa.free(cwd);
+    const path = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/tmp/{s}", .{ cwd, tmp.sub_path });
+    defer gpa.free(path);
+
+    const state = try app.State.create(gpa, std.testing.io, path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 1280, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+    t.frame();
+    const where = state.first_picture orelse return error.NoPictureOnScreen;
+    t.doubleClick(where.x + where.w / 2, where.y + where.h / 2);
+    t.settle(0.3);
+    const key = try thumbs.largeKey(gpa, state.large.?.path);
+    defer gpa.free(key);
+    for (0..400) |_| {
+        t.frame();
+        if (state.shared.get(key)) |known| {
+            if (known.thumb != null) break;
+        }
+        std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake) catch {};
+    }
+    t.typeText("f");
+    t.settle(0.8);
+    try std.testing.expectEqual(app.ZoomMode.fill, state.zoom_mode);
+    const at = state.large_at;
+    try std.testing.expect(at.w >= 1280 - 60 or at.h >= 800 - 60);
+    try shots.shot(&t, "docs/redesign/shots/lightbox-fill.png");
 }

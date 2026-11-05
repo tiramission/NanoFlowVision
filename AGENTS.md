@@ -87,6 +87,7 @@ src/statusbar.zig what is here, how heavy, where the cursor stands, the watch
 src/dialogs.zig  the folder that cannot be read, and the bin's second thought
 src/screen.zig    full screen where the platform has it, maximize where it does not
 src/shots.zig    compressed PNGs for the documented snapshots
+src/zoom.zig     the large view's zoom: four modes, the pointer's anchor
 src/i18n.zig     the interface's words, in English and Chinese
 src/watch.zig    the folder watched, so the disk's changes arrive by themselves
 src/masonry.zig  where each picture sits: columns of pictures

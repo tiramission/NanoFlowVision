@@ -12,6 +12,7 @@ const kit = nanoui.kit;
 const app = @import("app.zig");
 const exif = @import("exif.zig");
 const filmstrip = @import("filmstrip.zig");
+const zoom_mod = @import("zoom.zig");
 const fullscreen = @import("fullscreen.zig");
 const model = @import("model.zig");
 const ops = @import("ops.zig");
@@ -20,15 +21,12 @@ const thumbs = @import("thumbs.zig");
 const i18n = @import("i18n.zig");
 const xmp = @import("xmp.zig");
 
-/// The easing slot the framework's clock holds the large view's zoom
-/// in. Its own constant, so the same slot is found every frame.
-const zoom_anim: u64 = 0x7A00C1A1;
-
 /// Opens a picture large. Its own cache key keeps the big pixels from
 /// pushing the thumbnails out. The keyboard's place follows it, so the
 /// escape back to the wall lands on the tile it came from.
 pub fn show(s: *app.State, pic: *model.Picture) void {
     close(s);
+    s.zoom_mode = .fit;
     s.zoom_target = null;
     s.anchor = null;
     const key = thumbs.largeKey(s.gpa, pic.path) catch return;
@@ -47,6 +45,7 @@ pub fn show(s: *app.State, pic: *model.Picture) void {
 pub fn close(s: *app.State) void {
     s.large = null;
     s.tag_editing = false;
+    s.zoom_mode = .fit;
     s.zoom_target = null;
     s.anchor = null;
     s.pan_tx = 0;
@@ -123,24 +122,6 @@ fn save(s: *app.State, pic: *model.Picture, m: *const exif.Meta) void {
     s.shared.setMeta(pic.path, m.*);
 }
 
-/// Fit and 1:1 change places: the wheel's double click, the chip and
-/// `z` all say the same thing. Which of the two the view is at is the
-/// target's own word, not the zoom's size against the fit -- a small
-/// photograph's fit is bigger than 1:1, and the two must still trade.
-fn toggleZoom(s: *app.State) void {
-    if (s.zoom_target != null) {
-        s.zoom_target = null;
-        s.anchor = null;
-    } else {
-        s.zoom_target = 1.0;
-        // 1:1 keeps the middle of the picture still unless the reader
-        // asked with the wheel, which sets its own anchor.
-        s.anchor = .{ .x = 0.5, .y = 0.5 };
-    }
-    s.pan_tx = 0;
-    s.pan_ty = 0;
-}
-
 /// The picture, large, over a dark room.
 pub fn view(s: *app.State, c: *ui.Context) void {
     const k = theme.colors(s.dark);
@@ -206,22 +187,23 @@ pub fn view(s: *app.State, c: *ui.Context) void {
 
     var m: exif.Meta = s.shared.metaOf(pic.path) orelse exif.Meta{};
     const tr = i18n.strings(s.lang);
-    // `z` lands where the fit is known: the keys are read here, the
-    // zoom answers when the picture's own size is on the table.
+    // The keys that shape the view: `z` fits and 1:1 change places, `f`
+    // fills the screen and 1:1 do, `i` folds the facts. None of them
+    // needs the file to be writable, so they are read for any picture;
+    // only rating and tagging do.
     var zoom_toggle = false;
-    if (editable(pic.name)) {
-        // The number keys rate the picture; `t` starts a tag; `i` folds
-        // the panel of facts. While the tag is being typed, the keys
-        // belong to the field.
-        if (!s.tag_editing) {
-            for (c.input.chars) |ch| {
+    var fill_toggle = false;
+    if (!s.tag_editing) {
+        for (c.input.chars) |ch| {
+            if (ch == 'z' or ch == 'Z') zoom_toggle = true;
+            if (ch == 'f' or ch == 'F') fill_toggle = true;
+            if (ch == 'i' or ch == 'I') s.info_open = !s.info_open;
+            if (editable(pic.name)) {
                 if (ch >= '0' and ch <= '5') rate(s, pic, &m, @intCast(ch - '0'));
                 if (ch == 't' or ch == 'T') {
                     s.tag_editing = true;
                     s.tag_field.clear();
                 }
-                if (ch == 'z' or ch == 'Z') zoom_toggle = true;
-                if (ch == 'i' or ch == 'I') s.info_open = !s.info_open;
             }
         }
     }
@@ -251,66 +233,32 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         const img_w: f32 = @floatFromInt(pixels.w);
         const img_h: f32 = @floatFromInt(pixels.h);
         const fit = @min(room_w / img_w, room_h / img_h);
-        const wheel = c.input.scroll.y;
-        if (zoom_toggle) toggleZoom(s);
-
-        // The wheel asks for another zoom, and says what it wants to keep
-        // under the pointer: the picture-space point under it right now,
-        // read from the frame the reader is looking at (the eased zoom,
-        // not the target) -- so a second notch, or a notch during the
-        // easing, anchors where the picture actually is.
+        // Filling the room: the picture covers it, its edges cropped.
+        const cover = @max(room_w / img_w, room_h / img_h);
+        // The keys shape the view, and the wheel zooms it about the
+        // pointer; `zoom.step` owns both, and hands back what to draw.
+        var wheel = c.input.scroll.y;
         if (wheel != 0 and chrome_live and c.input.mouse.y >= c.size.h - filmstrip.strip_h) {
+            // Over the strip, the wheel steps along the gallery instead.
             neighbor(s, if (wheel < 0) 1 else -1);
-            c.changed = true;
-        } else if (wheel != 0) {
-            const base = s.zoom;
-            const lo = @min(fit, 1.0);
-            const hi = @max(fit, 1.0) * 8.0;
-            const next = std.math.clamp(base * std.math.pow(f32, 1.15, wheel / 120), lo, hi);
-            if (next <= fit + 0.01) {
-                s.zoom_target = null;
-                s.anchor = null;
-            } else {
-                const bw = img_w * base;
-                const bh = img_h * base;
-                const left = (c.size.w - bw) / 2 + s.pan_tx;
-                const top = top_room + (room_h - bh) / 2 + s.pan_ty;
-                const ax = std.math.clamp((c.input.mouse.x - left) / bw, 0, 1);
-                const ay = std.math.clamp((c.input.mouse.y - top) / bh, 0, 1);
-                s.zoom_target = next;
-                s.anchor = .{ .x = ax, .y = ay };
-                s.anchor_mouse = .{ .x = c.input.mouse.x, .y = c.input.mouse.y };
-            }
+            wheel = 0;
             c.changed = true;
         }
-
-        // What the frame shows: the zoom eases toward its target by the
-        // clock, and the pan is derived from it -- the anchor point sits
-        // exactly under the pointer at every step of the way, instead of
-        // the pan and the zoom easing separately and drifting apart.
-        const zoom = c.animate(zoom_anim, 0, s.zoom_target orelse fit, 12);
-        s.zoom = zoom;
-        if (s.anchor) |a| {
-            const bw = img_w * zoom;
-            const bh = img_h * zoom;
-            s.pan_tx = s.anchor_mouse.x - ((c.size.w - bw) / 2 + a.x * bw);
-            s.pan_ty = s.anchor_mouse.y - (top_room + (room_h - bh) / 2 + a.y * bh);
-            // A picture that still overflows may not leave the room
-            // empty at its edges; one that no longer overflows is put
-            // back in the middle.
-            const ox = @max(0, (bw - room_w) / 2);
-            const oy = @max(0, (bh - room_h) / 2);
-            if (ox <= 0) s.pan_tx = 0 else s.pan_tx = std.math.clamp(s.pan_tx, -ox, ox);
-            if (oy <= 0) s.pan_ty = 0 else s.pan_ty = std.math.clamp(s.pan_ty, -oy, oy);
-        } else {
-            s.pan_tx = 0;
-            s.pan_ty = 0;
-        }
+        const shown = zoom_mod.step(s, c, .{
+            .w = room_w,
+            .h = room_h,
+            .top = top_room,
+            .img_w = img_w,
+            .img_h = img_h,
+            .fit = fit,
+            .cover = cover,
+        }, wheel, zoom_toggle, fill_toggle);
+        const zoom = shown.zoom;
         const w = img_w * zoom;
         const h = img_h * zoom;
         // The rectangle the picture takes, for the tests that hold the
         // point under the pointer to its place.
-        s.large_at = .{ .x = (c.size.w - w) / 2 + s.pan_tx, .y = top_room + (room_h - h) / 2 + s.pan_ty, .w = w, .h = h };
+        s.large_at = .{ .x = (c.size.w - w) / 2 + shown.pan_x, .y = top_room + (room_h - h) / 2 + shown.pan_y, .w = w, .h = h };
 
         const texture = ui.Texture{ .width = pixels.w, .height = pixels.h, .bgra = pixels.bgra };
         {
@@ -325,7 +273,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             // Two clicks: fit and 1:1 change places, eased as the wheel
             // does.
             if (inter.double_clicked) {
-                toggleZoom(s);
+                zoom_mod.toggleFit(s);
                 c.changed = true;
             } else if (inter.pressed and zoom > fit + 0.01) {
                 // Dragging moves the picture under the hand. The anchor
@@ -371,12 +319,21 @@ pub fn view(s: *app.State, c: *ui.Context) void {
                 .opacity(chrome_alpha)
                 .bg(k.scrim).control();
             defer chip.end();
-            if (s.zoom_target != null) {
-                ui.textf(c, .{ .size = 12, .mono = true, .color = ui.Color.white }, "{d:.0}%", .{zoom * 100});
+            // The chip names the mode, and a click walks through the
+            // three that are named: fit, fill, 1:1. A wheel zoom is
+            // nobody's mode, and says its own percentage.
+            const label: []const u8 = switch (s.zoom_mode) {
+                .fit => tr.fit_label,
+                .fill => tr.fill_label,
+                .actual => "",
+                .free => "",
+            };
+            if (label.len > 0) {
+                ui.text(c, label, .{ .size = 12, .mono = true, .color = ui.Color.white });
             } else {
-                ui.text(c, tr.fit_label, .{ .size = 12, .mono = true, .color = ui.Color.white });
+                ui.textf(c, .{ .size = 12, .mono = true, .color = ui.Color.white }, "{d:.0}%", .{zoom * 100});
             }
-            if (chip.clicked()) toggleZoom(s);
+            if (chip.clicked()) zoom_mod.cycle(s);
         }
     } else {
         // The worker is still on it -- or it tried and cannot read the

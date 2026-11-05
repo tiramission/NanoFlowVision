@@ -482,3 +482,63 @@ test "the wheel zooms about the pointer, and keeps that point still" {
     try std.testing.expectEqual(@as(f32, 0), state.pan_tx);
     try std.testing.expectEqual(@as(f32, 0), state.pan_ty);
 }
+
+test "F fills the screen, and trades places with 1:1" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 2);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 900, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+    t.key(.down);
+    t.settle(0.1);
+    t.typeText(" ");
+    t.settle(0.2);
+    try std.testing.expect(state.large != null);
+    try std.testing.expectEqual(app.ZoomMode.fit, state.zoom_mode);
+
+    // `f` from the fit: the picture covers the room, edges cropped.
+    t.typeText("f");
+    t.settle(0.6);
+    try std.testing.expectEqual(app.ZoomMode.fill, state.zoom_mode);
+    const covered = state.large_at;
+    try std.testing.expect(covered.w >= 900 - 60);
+    try std.testing.expect(covered.h >= 800 - 60);
+    try std.testing.expect(t.hasText("Fill"));
+
+    // `f` again: 1:1, the other half of the pair. The zoom eases
+    // from the fill to the pixels, so give it its frames.
+    t.typeText("f");
+    t.settle(2.0);
+    try std.testing.expectEqual(app.ZoomMode.actual, state.zoom_mode);
+    try std.testing.expect(@abs(state.zoom - 1.0) < 0.01);
+    try std.testing.expect(t.hasText("100%"));
+
+    // And `f` once more: back to filling.
+    t.typeText("f");
+    t.settle(0.6);
+    try std.testing.expectEqual(app.ZoomMode.fill, state.zoom_mode);
+
+    // `z` still trades fit with 1:1, from wherever it stands.
+    t.typeText("z");
+    t.settle(0.6);
+    try std.testing.expectEqual(app.ZoomMode.actual, state.zoom_mode);
+    t.typeText("z");
+    t.settle(0.6);
+    try std.testing.expectEqual(app.ZoomMode.fit, state.zoom_mode);
+    try std.testing.expect(t.hasText("Fit"));
+
+    // A wheel zoom becomes nobody's mode, and says its percentage; the
+    // wheel back to the fit returns to the fit.
+    t.scroll(450, 400, 120);
+    t.settle(0.4);
+    try std.testing.expectEqual(app.ZoomMode.free, state.zoom_mode);
+    t.scroll(450, 400, -1200);
+    t.settle(0.5);
+    try std.testing.expectEqual(app.ZoomMode.fit, state.zoom_mode);
+}
