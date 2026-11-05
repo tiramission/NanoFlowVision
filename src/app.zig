@@ -183,15 +183,28 @@ pub const State = struct {
     /// What the window's title is currently saying about the measuring:
     /// null is the plain name. Only the changes reach the window.
     title_percent: ?usize = null,
-    /// The large view's zoom target (points per picture pixel; null
-    /// fits), and where its picture is headed.
-    zoom: ?f32 = null,
+    /// The large view's zoom: what the frame draws (points per picture
+    /// pixel), and what it is headed for (null fits). They differ while
+    /// the easing runs; anything that must stay put under the pointer
+    /// reads `zoom`, never the target.
+    zoom: f32 = 1,
     zoom_target: ?f32 = null,
+    /// Where the picture sits in the room, in points from its own centre.
+    /// Derived from the anchor every frame, so it follows the zoom that
+    /// is actually drawn.
+    pan_tx: f32 = 0,
+    pan_ty: f32 = 0,
+    /// The picture-space point (0..1 of its width and height) that must
+    /// stay under `anchor_mouse`; null means the middle of the picture.
+    anchor: ?ui.Point = null,
+    anchor_mouse: ui.Point = .{ .x = 0, .y = 0 },
+    panning: bool = false,
+    last_mouse_x: f32 = 0,
+    last_mouse_y: f32 = 0,
     /// The window is full screen (or maximized where full screen does
-    /// not exist), and the chrome has gone quiet in that room.
+    /// not exist), and the change to apply at the top of the next frame
+    /// (a window's style is never changed in the middle of a build).
     fullscreen: bool = false,
-    /// The change to apply at the top of the next frame: a window's
-    /// style is not changed in the middle of a build.
     fullscreen_pending: ?bool = null,
     /// When the current full screen began, and when it was last asked
     /// for: the Mac's animation is asynchronous and a second request
@@ -214,15 +227,12 @@ pub const State = struct {
     chrome_shown_at: f64 = 0,
     idle_mouse_x: f32 = 0,
     idle_mouse_y: f32 = 0,
-    /// Whether the large view's panel of facts is open.
+    /// Whether the large view's panel of facts is open; the strip's cells
+    /// and the picture's rectangle this frame (the tests click them, and
+    /// hold the point under the pointer to its place).
     info_open: bool = true,
-    /// The filmstrip's cells this frame, for the tests that click them.
     filmstrip_at: std.ArrayList(ui.Rect) = .empty,
-    pan_tx: f32 = 0,
-    pan_ty: f32 = 0,
-    panning: bool = false,
-    last_mouse_x: f32 = 0,
-    last_mouse_y: f32 = 0,
+    large_at: ui.Rect = .{},
     /// Where the grid sits, and how far it is scrolled.
     grid_x: f32 = 0,
     grid_y: f32 = 0,

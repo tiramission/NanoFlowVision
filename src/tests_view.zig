@@ -243,7 +243,7 @@ test "the large view's panel folds to a line, and the zoom speaks" {
     // said once the easing has arrived, which takes its few frames.
     t.typeText("z");
     t.settle(0.5);
-    try std.testing.expect(state.zoom != null);
+    try std.testing.expect(state.zoom_target != null);
     try std.testing.expect(t.hasText("100%"));
 
     // Again: back to the fit, said in words.

@@ -162,9 +162,11 @@ test "snapshot: the large view, zoomed, facts open" {
         }
         std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake) catch {};
     }
-    // About 240%: the target set, then the easing given its frames. The
-    // facts stand open -- the exif gives them something to say.
-    state.zoom = 2.4;
+    // About 240%: the target set, the anchor in the middle, and the
+    // easing given its frames. The facts stand open -- the exif gives
+    // them something to say.
+    state.anchor = .{ .x = 0.5, .y = 0.5 };
+    state.anchor_mouse = .{ .x = 640, .y = 400 };
     state.zoom_target = 2.4;
     try std.testing.expect(state.info_open);
     t.settle(0.6);

@@ -327,7 +327,7 @@ test "a double click shows the picture large" {
     // zoom, and a chip names how much.
     t.scroll(where.x + where.w / 2, where.y + where.h / 2, 120);
     t.frame();
-    try std.testing.expect(state.zoom != null);
+    try std.testing.expect(state.zoom_target != null);
     try std.testing.expect(t.containsText("%"));
 
     // Escape closes it again.

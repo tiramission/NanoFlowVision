@@ -404,3 +404,81 @@ test "the settings keep the window as it was before full screen" {
     try std.testing.expectEqual(@as(f64, 900), kept.width);
     try std.testing.expectEqual(@as(f64, 10), kept.x);
 }
+
+test "the wheel zooms about the pointer, and keeps that point still" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 2);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 900, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+
+    t.key(.down);
+    t.settle(0.1);
+    t.typeText(" ");
+    t.settle(0.2);
+    try std.testing.expect(state.large != null);
+    // The big pixels, so the picture has a rectangle to hold points in.
+    const key = try @import("thumbs.zig").largeKey(gpa, state.large.?.path);
+    defer gpa.free(key);
+    for (0..400) |_| {
+        t.frame();
+        if (state.shared.get(key)) |known| {
+            if (known.thumb != null) break;
+        }
+        std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake) catch {};
+    }
+    t.settle(0.2);
+    t.frame();
+
+    // First, make the picture overflow the room: while it is smaller than
+    // the room it stays centred, and there is nothing to hold still.
+    const fit_rect = state.large_at;
+    t.scroll(fit_rect.x + fit_rect.w / 2, fit_rect.y + fit_rect.h / 2, 1200);
+    t.settle(0.6);
+    t.frame();
+    const big = state.large_at;
+    try std.testing.expect(big.w > 900 and big.h > 800);
+
+    // Now the point under the pointer, three tenths across and six
+    // tenths down: one notch, and it must not move -- not when the
+    // easing arrives, and not on any frame on the way there.
+    const px = big.x + big.w * 0.3;
+    const py = big.y + big.h * 0.6;
+    const fx = 0.3;
+    const fy = 0.6;
+    t.scroll(px, py, 120);
+    var frame: usize = 0;
+    while (frame < 40) : (frame += 1) {
+        t.frame();
+        const now = state.large_at;
+        try std.testing.expect(@abs((px - now.x) / now.w - fx) < 0.005);
+        try std.testing.expect(@abs((py - now.y) / now.h - fy) < 0.005);
+    }
+    t.settle(0.6);
+    try std.testing.expect(state.zoom_target != null);
+
+    // Two notches in quick succession: the second lands while the first
+    // is still easing, and the point must still not move.
+    t.scroll(px, py, 120);
+    t.advance(0.03);
+    t.scroll(px, py, 120);
+    t.settle(0.6);
+    t.frame();
+    const after = state.large_at;
+    try std.testing.expect(@abs((px - after.x) / after.w - fx) < 0.005);
+    try std.testing.expect(@abs((py - after.y) / after.h - fy) < 0.005);
+
+    // And back to the fit: the picture is the room again, in the middle.
+    t.scroll(px, py, -2000);
+    t.settle(0.6);
+    try std.testing.expect(state.zoom_target == null);
+    t.frame();
+    try std.testing.expectEqual(@as(f32, 0), state.pan_tx);
+    try std.testing.expectEqual(@as(f32, 0), state.pan_ty);
+}
