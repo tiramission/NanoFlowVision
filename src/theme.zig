@@ -51,6 +51,12 @@ pub const Colors = struct {
     /// black one too. One value for both rooms -- what is under it is a
     /// picture, not the room.
     scrim: nanoui.ui.Color,
+    /// The large view is a dark room in both themes: a photograph is
+    /// judged against the same surround whatever the interface wears.
+    room: nanoui.ui.Color,
+    /// Words on that room, when the picture is still on its way or
+    /// cannot be read.
+    room_muted: nanoui.ui.Color,
     /// The star -- the one content colour the interface owns.
     grade: nanoui.ui.Color,
     green: nanoui.ui.Color,
@@ -77,6 +83,8 @@ pub fn colors(dark: bool) Colors {
             .control = nanoui.ui.Color.hex(0x1a1d21),
             .control_on = nanoui.ui.Color.hex(0x262a2f),
             .scrim = black.alpha(0.62),
+            .room = nanoui.ui.Color.hex(0x0e0f11),
+            .room_muted = nanoui.ui.Color.hex(0xa2a5ab),
             .grade = nanoui.ui.Color.hex(0xe8b93b),
             .green = nanoui.ui.Color.hex(0x7fbf6a),
             .red = nanoui.ui.Color.hex(0xe86f5e),
@@ -100,6 +108,8 @@ pub fn colors(dark: bool) Colors {
         .control = nanoui.ui.Color.hex(0xe9e9e4),
         .control_on = nanoui.ui.Color.hex(0xffffff),
         .scrim = black.alpha(0.62),
+        .room = nanoui.ui.Color.hex(0x111214),
+        .room_muted = nanoui.ui.Color.hex(0xa2a5ab),
         .grade = nanoui.ui.Color.hex(0x8a6a10),
         .green = nanoui.ui.Color.hex(0x4b7a32),
         .red = nanoui.ui.Color.hex(0xa33227),

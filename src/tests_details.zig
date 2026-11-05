@@ -176,3 +176,70 @@ test "Ctrl+O asks the system for a folder" {
     t.frame();
     try std.testing.expect(state.dialog_pending);
 }
+
+test "the keyboard's map is a table, not a wall of text" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSample(gpa);
+    defer sample.deinit(gpa);
+    try sample.tmp.dir.createDirPath(std.testing.io, "album");
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 1000, .height = 800 });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+
+    _ = t.shortcut(.{ .key = '/', .ctrl = true });
+    t.settle(0.4);
+    try std.testing.expect(state.keys_open);
+
+    // Four groups, each with its rows, and the key column stands to the
+    // left of what the key does -- a table, not one string.
+    try std.testing.expect(t.hasText("Everywhere"));
+    try std.testing.expect(t.hasText("Grid"));
+    try std.testing.expect(t.hasText("Large view"));
+    try std.testing.expect(t.hasText("Sidebar"));
+    const key = t.findText("Ctrl+O") orelse return error.TextNotFound;
+    const what = t.findText("Open a folder") orelse return error.TextNotFound;
+    try std.testing.expect(what.x > key.x + key.w);
+
+    // The Chinese map is a table too, and it is its own words.
+    state.lang = .zh;
+    t.frame();
+    t.frame();
+    try std.testing.expect(t.hasText("全局"));
+    try std.testing.expect(t.hasText("打开目录"));
+    try std.testing.expect(!t.hasText("Open a folder"));
+}
+
+test "the large view is a dark room, whatever the theme" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 2);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    state.dark = false;
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 900, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+    t.frame();
+
+    const where = state.first_picture orelse return error.NoPictureOnScreen;
+    t.doubleClick(where.x + where.w / 2, where.y + where.h / 2);
+    t.settle(0.4);
+    try std.testing.expect(state.large != null);
+
+    // A pixel in the room beside the picture: dark in a light interface
+    // too. (Premultiplied BGRA.)
+    const pixels = try t.render(gpa);
+    defer pixels.deinit(gpa);
+    const at = (400 * pixels.width + 10) * 4;
+    const b = pixels.bytes[at];
+    const g = pixels.bytes[at + 1];
+    const r = pixels.bytes[at + 2];
+    try std.testing.expect(@as(u32, r) + g + b < 160);
+}

@@ -13,19 +13,43 @@ const model = @import("model.zig");
 const ops = @import("ops.zig");
 const shell = @import("shell.zig");
 
-/// The keyboard's map, one line to a key: what the whole interface
-/// answers, said in one place. Escape, the dimming or the button
-/// takes it away.
+/// The keyboard's map, as a table: keys in mono on the left, what they
+/// do on the right, grouped by where they act. Two columns of groups,
+/// so the whole map fits a window without scrolling. Escape, the dimming
+/// or the button takes it away.
 pub fn keysDialog(s: *app.State, c: *ui.Context) void {
     const tr = i18n.strings(s.lang);
     const d = kit.dialog(c, "keys", &s.keys_open, .{
         .title = tr.keys_title,
         .ok = "",
         .cancel = "",
-        .width = 520,
+        .width = 780,
     }) orelse return;
+    const groups = i18n.keyGroups(s.lang);
+    const split = @min(2, groups.len);
+    ui.row(c, .{ .width = .fill, .gap = 40, .align_items = .start });
+    var side: usize = 0;
+    while (side < 2) : (side += 1) {
+        ui.column(c, .{ .grow = 1, .gap = 10 });
+        const from = if (side == 0) 0 else split;
+        const to = if (side == 0) split else groups.len;
+        for (groups[from..to]) |group| {
+            ui.column(c, .{ .width = .fill, .gap = 2 });
+            ui.text(c, group.title, .{ .size = 11, .weight = .semibold, .color = c.theme.muted });
+            for (group.rows) |row| {
+                _ = ui.div(c).row().wFull().h(18).itemsCenter().gap(10);
+                _ = ui.div(c).row().w(136).justifyEnd().itemsCenter();
+                ui.text(c, row.keys, .{ .size = 12, .mono = true, .color = c.theme.text });
+                ui.end(c);
+                ui.text(c, row.what, .{ .size = 12.5, .color = c.theme.muted });
+                ui.end(c);
+            }
+            ui.end(c);
+        }
+        ui.end(c);
+    }
+    ui.end(c);
     _ = d.end();
-    ui.text(c, tr.keys_map, .{ .size = 12, .mono = true, .color = c.theme.muted, .wrap = true });
 }
 
 /// Asks for the bin: one picture goes at once; several wait for the

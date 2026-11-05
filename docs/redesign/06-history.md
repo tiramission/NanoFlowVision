@@ -47,6 +47,10 @@
 - 大图：顶条加 info / close 两枚 chip；星标用金色；胶片条按照片比例、
   当前项加环、其余压暗、悬停白边、放不下时整体等比缩小。
 - 设置：页脚 `⌘/ Keys` 入口。
+- 键盘一览：从一坨等宽文本改成两列表格——键在左（mono、右对齐），动作在右，按四组排；
+  Windows/Linux 上 Backspace 记为 `Del`（mono 字体没有 ⌫）。
+- 大图：房间固定为深色（`room`，亮房 `#111214`），照片始终在同一个中性深底上判断；
+  等待/失败的文字改用 `room_muted`，不再借用主题的次要色。
 
 **有意偏离旧规格**
 
@@ -58,7 +62,7 @@
 
 ## 四、验证方式
 
-- `zig build test`：97 个测试，覆盖行为（断言矩形或状态，不只断言文字存在）。
-- `docs/redesign/shots/`：16 张状态快照，由 `tests_shots.zig` 与 `tests_meta.zig`
+- `zig build test`：101 个测试，覆盖行为（断言矩形或状态，不只断言文字存在）。
+- `docs/redesign/shots/`：17 张状态快照，由 `tests_shots.zig` 与 `tests_meta.zig`
   渲染，`src/shots.zig` 压缩后写入。
 - 界面的旧样子见 `git log`（重新设计之前的琥珀方案没有保留文档，也不需要）。

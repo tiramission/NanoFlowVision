@@ -216,7 +216,7 @@ div (absolute, offset=place, w, h, 圆角 4, clip)
 层号 **5**（低于 kit 的 10/11/20/30/40，否则确认框会被照片盖住）。
 
 ```
-div (fixed, sizeFull, bg=page)          ← 房间随主题：暗房 #0E0F11 / 亮房 #F7F7F4
+div (fixed, sizeFull, bg=room)          ← 固定深色房间：亮房也是 #111214（照片→同一个场）
 ├── 照片框（absolute 居中 + 平移，w/h = 图片像素 × zoom，亮房 1px line2 + shadowMd）
 ├── 顶部条 h=44（常驻：序号、文件名、星、info/close chip）
 │   左：3 / 12（12 mono ink2）+ 文件名（13 ink）
@@ -224,7 +224,7 @@ div (fixed, sizeFull, bg=page)          ← 房间随主题：暗房 #0E0F11 / �
 │       两枚 chip 都在纱底上，悬停白 16% 底，带 tooltip；xmark 关闭大图
 ├── 胶片条 h=76（与顶部条同生共死）
 │   窗口式：当前居中，左右各 7 张；缩略 48 高（宽度 = 48×aspect，44–96）
-│   当前项：2px accent 环 + 不透明；其他：opacity 0.7；不足 15 张则只画有的
+│   当前项：2px 白环 + 不透明（房间恒深，accent 在亮房里会是黑的）；其他：opacity 0.7；不足 15 张则只画有的
 │   悬停某张 → 该张 1px line2；点击 → 跳转；滚轮停在胶片条上 → 上一张/下一张
 ├── 信息块（左下；胶片条上方 12）
 │   收起：一枚 「Info」 小卡片（info.circle + 文字），点击或 I 展开

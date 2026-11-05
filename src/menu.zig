@@ -83,7 +83,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         // trouble, so the hand lands there on purpose.
         items[n] = .{ .label = tr.copy, .icon = "doc.on.doc", .shortcut = "⌘C" };
         n += 1;
-        items[n] = .{ .label = tr.trash_selected, .icon = "trash", .shortcut = "⌫", .danger = true };
+        items[n] = .{ .label = tr.trash_selected, .icon = "trash", .shortcut = i18n.delete_key, .danger = true };
         n += 1;
     } else {
         const mp = s.menu_for.?;
@@ -99,7 +99,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         n += 1;
         items[n] = .{ .separator = true };
         n += 1;
-        items[n] = .{ .label = tr.to_bin, .icon = "trash", .shortcut = "⌫", .danger = true };
+        items[n] = .{ .label = tr.to_bin, .icon = "trash", .shortcut = i18n.delete_key, .danger = true };
         n += 1;
     }
 

@@ -71,7 +71,7 @@ pub fn view(s: *app.State, c: *ui.Context, current: usize) ?usize {
         {
             const cell = ui.div(c).absolute()
                 .offset(x, (strip_h - height) / 2)
-                .w(w).h(height).rounded(4)
+                .w(w).h(height).rounded(4).clip()
                 .bg(if (on) ui.Color.white.alpha(0.18) else ui.Color.white.alpha(0.06))
                 .control();
             const it = cell.interaction();
@@ -79,13 +79,6 @@ pub fn view(s: *app.State, c: *ui.Context, current: usize) ?usize {
             // The one shown stands out in full and wears a ring; the
             // others stand back a little, so the eye lands where it is.
             shown.style.opacity = if (on) 1 else 0.72;
-            if (on) {
-                shown.style.border = k.accent;
-                shown.style.border_width = 2;
-            } else if (it.hovered) {
-                shown.style.border = ui.Color.white.alpha(0.55);
-                shown.style.border_width = 1;
-            }
             // The picture itself, or the square it will be: the strip
             // reads the same cache the wall does, so nothing decodes
             // twice.
@@ -96,6 +89,14 @@ pub fn view(s: *app.State, c: *ui.Context, current: usize) ?usize {
                 }
             } else {
                 s.pool.askPicture(s.shown[i].path, s.shown[i].path, s.density.side());
+            }
+            // The ring goes over the picture, never under it: a border on
+            // the cell is painted before the pixels and would not be seen.
+            if (on or it.hovered) {
+                const ring = ui.div(c).absolute().offset(0, 0).wFull().hFull().rounded(4)
+                    .border(ui.Color.white.alpha(if (on) 1 else 0.55))
+                    .borderW(if (on) 2 else 1);
+                ring.end();
             }
             if (it.clicked) clicked = i;
             cell.end();

@@ -369,3 +369,20 @@ test "snapshot: the choice the filter took off the wall" {
     try std.testing.expect(t.containsText("hidden by the filter"));
     try shots.shot(&t, "docs/redesign/shots/hidden.png");
 }
+
+test "snapshot: the keys table" {
+    try ensureDir();
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 4);
+    defer sample.deinit(gpa);
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 1100, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    _ = t.shortcut(.{ .key = '/', .ctrl = true });
+    t.settle(0.5);
+    try std.testing.expect(state.keys_open);
+    try shots.shot(&t, "docs/redesign/shots/keys.png");
+}

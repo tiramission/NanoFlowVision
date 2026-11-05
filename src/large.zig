@@ -143,7 +143,6 @@ fn toggleZoom(s: *app.State) void {
 
 /// The picture, large, over a dark room.
 pub fn view(s: *app.State, c: *ui.Context) void {
-    const th = c.theme;
     const k = theme.colors(s.dark);
     const pic = s.large orelse return;
     // The wheel zooms here: nothing in this view scrolls.
@@ -174,7 +173,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         s.toast(.danger, here.trash_failed);
     }
 
-    const back = ui.div(c).sizeFull().bg(th.background);
+    const back = ui.div(c).sizeFull().bg(k.room);
     defer back.end();
     if (back.clicked()) {
         close(s);
@@ -361,15 +360,15 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         if (known.failed) {
             const note = ui.div(c).absolute().offset(0, 0).sizeFull().column().center().gap(8);
             defer note.end();
-            ui.icon(c, "exclamationmark.triangle", .{ .size = 28, .color = th.muted });
-            ui.text(c, tr.decode_failed, .{ .size = 14, .color = th.muted });
-            ui.text(c, pic.path, .{ .size = 12, .mono = true, .color = th.muted });
+            ui.icon(c, "exclamationmark.triangle", .{ .size = 28, .color = k.room_muted });
+            ui.text(c, tr.decode_failed, .{ .size = 14, .color = k.room_muted });
+            ui.text(c, pic.path, .{ .size = 12, .mono = true, .color = k.room_muted });
         } else {
             c.animationFrame();
             const wait = ui.div(c).row().itemsCenter().gap(8).px(4).py(4);
             defer wait.end();
-            ui.icon(c, "circle.dotted", .{ .size = 14, .color = th.muted });
-            ui.text(c, tr.loading, .{ .size = 14, .color = th.muted });
+            ui.icon(c, "circle.dotted", .{ .size = 14, .color = k.room_muted });
+            ui.text(c, tr.loading, .{ .size = 14, .color = k.room_muted });
         }
     }
 
