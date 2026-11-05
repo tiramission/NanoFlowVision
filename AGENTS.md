@@ -62,7 +62,8 @@ last visit, or the user's Pictures, or the folder it was started in.
 
 ```
 build.zig       the app, `run` and `test` steps
-build.zig.zon   nanoui, zigimg and nfd, pinned
+build.zig.zon   zigimg and nfd, pinned; nanoui from third_party
+third_party/nanoui  nanoui v0.9.2's src, with PATCHES.md's fixes (GPU kind 8, CJK weight)
 src/main.zig    the window, and the folder to show
 src/app.zig     the state and its view: tree, the overlays, the settings
 src/library.zig reading a folder, the order it shows in, its places

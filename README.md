@@ -114,7 +114,7 @@ zig-out/bin/nanoflowvision.exe D:\Photos --nanoui-dark --nanoui-snapshot=shot-da
 
 ## 依赖与协议
 
-[nanoui](https://github.com/justrach/nanoui) v0.9.2（UI 框架：macOS 用 Metal、Linux 用 OpenGL、Windows 用 Direct3D 11）、
+[nanoui](https://github.com/justrach/nanoui) v0.9.2（UI 框架：macOS 用 Metal、Linux 用 OpenGL、Windows 用 Direct3D 11；本地 vendored 到 `third_party/nanoui`，补丁见其 `PATCHES.md`）、
 [zigimg](https://github.com/zigimg/zigimg)（纯 Zig 解码）、
 [nfd-zig](https://github.com/fabioarnold/nfd-zig)（系统目录对话框）。
 

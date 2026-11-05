@@ -3,10 +3,10 @@
     .version = "0.1.0",
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
-        .nanoui = .{
-            .url = "git+https://github.com/justrach/nanoui.git#v0.9.2",
-            .hash = "nanoui-0.9.2-we0KMYdXIQD03skiJj43xJJz1xeSHpIotMktAGhDbT9v",
-        },
+        // nanoui v0.9.2's src/, with the fixes in third_party/nanoui/PATCHES.md:
+        // the GPU renderers had no branch for `ui.texture` (every picture here),
+        // and the CJK fallback picked a heavier face than the Latin beside it.
+        .nanoui = .{ .path = "third_party/nanoui" },
         .zigimg = .{
             .url = "git+https://github.com/zigimg/zigimg.git#083d0304840a3f5fd547c2e2005148a18886c401",
             .hash = "zigimg-0.1.0-8_eo2j1pGAA3ArMKhXcipNR-tdjmeWmByLJhOff2A_X4",

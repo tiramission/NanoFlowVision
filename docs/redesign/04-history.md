@@ -59,6 +59,15 @@
   横向滚动、全屏 API 与焦点环。升级带来的三处应用侧改动：Tab 交给 nanoui
   的焦点环（rail 与 grid 登记为停点）、Control+左键被读成右键（图块上仍当
   加选）、重命名测试直接调用 `menu.tryRename` 而不靠点击字段。
+- 修：升级后**照片全是白的**。本应用所有照片都走 `ui.texture`（绕过 nanoui
+  1024px 的图集），而 v0.9.2 的 **HLSL 与 GLSL 着色器都没有 kind 8 的分支**
+  （只有 Metal 与 CPU 光栅有），于是落到 quad 分支画成白块。离线快照走 CPU，
+  所以测试全绿、真窗口全白。补丁在 `third_party/nanoui`（PATCHES.md），并加了
+  `src/tests_gpu.zig`：用 D3D11 画一个红色 `ui.texture`，断言中心像素是红。
+- 修：**中文比旁边的英文粗**。「资料库」要 semibold(600)，雅黑只有 400/700，
+  `fontdb.family()` 按绝对字重差选了 700（差 100 优于差 200），于是中文比拉丁
+  文字重一档。改成「宁轻勿重」：更重的 face 额外计 1000 分，600 落到 400，
+  再由既有的 3% 合成加粗补成 semibold。
 
 **有意偏离旧规格**
 
@@ -80,7 +89,7 @@
 
 ## 五、验证方式
 
-- `zig build test`：113 个测试，覆盖行为（断言矩形或状态，不只断言文字存在）。
+- `zig build test`：114 个测试，覆盖行为（断言矩形或状态，不只断言文字存在）。
 - `docs/redesign/shots/`：20 张状态快照，由 `tests_shots.zig` 与 `tests_meta.zig`
   渲染，`src/shots.zig` 压缩后写入。
 - 界面的旧样子见 `git log`（重新设计之前的琥珀方案没有保留文档，也不需要）。
