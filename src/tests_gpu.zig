@@ -1,8 +1,8 @@
 //! The Direct3D 11 renderer, for what this app draws and nanoui's own parity
 //! tests do not cover: a texture the app gave the frame (`ui.texture`), which
 //! is every photograph here. nanoui v0.9.2 had no branch for it in the HLSL,
-//! so the GPU drew a white quad where the picture was; the vendored copy adds
-//! it (third_party/nanoui/PATCHES.md).
+//! so the GPU drew a white quad where the picture was; our nanoui fork adds it
+//! (see NANOUI-FORK.md).
 
 const std = @import("std");
 const nanoui = @import("nanoui");

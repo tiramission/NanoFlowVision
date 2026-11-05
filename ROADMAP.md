@@ -30,6 +30,9 @@ CPU 那条的成本几乎全在“每屏幕像素 4 个采样点”的双线性�
 渲染器（`src/ui/d3d11.zig`，同一批 instance 一次 instanced draw），应用换到 0.9.2
 后自动走 GPU；`NANOUI_NO_D3D=1` 可退回 CPU 光栅做对比。
 
+nanoui 用的是我们的 fork（`tiramission/nanoui`，四处修复：GPU 的 `ui.texture`
+分支、两个渲染器的逐张绑纹理、CJK 字重），见 [NANOUI-FORK.md](NANOUI-FORK.md)。
+
 ## 还没做的
 
 | 事项 | 依赖 / 说明 |

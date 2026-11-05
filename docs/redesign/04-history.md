@@ -62,7 +62,7 @@
 - 修：升级后**照片全是白的**。本应用所有照片都走 `ui.texture`（绕过 nanoui
   1024px 的图集），而 v0.9.2 的 **HLSL 与 GLSL 着色器都没有 kind 8 的分支**
   （只有 Metal 与 CPU 光栅有），于是落到 quad 分支画成白块。离线快照走 CPU，
-  所以测试全绿、真窗口全白。补丁在 `third_party/nanoui`（PATCHES.md），并加了
+  所以测试全绿、真窗口全白。补丁在我们的 fork `tiramission/nanoui`（[NANOUI-FORK.md](../../NANOUI-FORK.md)），并加了
   `src/tests_gpu.zig`：用 D3D11 画一个红色 `ui.texture`，断言中心像素是红。
 - 修：**中文比旁边的英文粗**。「资料库」要 semibold(600)，雅黑只有 400/700，
   `fontdb.family()` 按绝对字重差选了 700（差 100 优于差 200），于是中文比拉丁
