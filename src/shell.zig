@@ -471,9 +471,16 @@ fn crumbs(s: *app.State, c: *ui.Context) void {
     }
     if (names.items.len == 0) return;
 
-    const room = ui.div(c).row().grow().minW(120).itemsCenter().gap(6).clip();
+    // One line, whatever the path: the bar is 44 points high and a crumb
+    // that wrapped into a second line would push the bar's contents down.
+    // Names are cut with an ellipsis instead (the middle of a long name
+    // matters less than its start and end).
+    const room = ui.div(c).row().grow().minW(120).h(20).itemsCenter().gap(6).clip();
     defer room.end();
     const only_here = c.size.w <= crumbs_narrow;
+    // The last crumb takes what is left once the ancestors have theirs; a
+    // long path shows its deepest folder and as many ancestors as fit.
+    const last_box: f32 = @max(120, c.size.w - s.rail_w - 380);
     var drawn: usize = 0;
     var i: usize = names.items.len;
     while (i > 0) {
@@ -485,16 +492,18 @@ fn crumbs(s: *app.State, c: *ui.Context) void {
         if (last) {
             // The folder the gallery shows, in a box that holds at least
             // 120 points however narrow the window: a title that vanishes
-            // is a title that may as well not be there. It wraps, so a
-            // long name fills the box instead of pushing the search out.
-            const box = ui.div(c).row().grow().minW(120).h(20).itemsCenter().clip();
+            // is a title that may as well not be there. Its name is cut
+            // with an ellipsis, never wrapped.
+            const box = ui.div(c).row().grow().minW(120).maxW(last_box).h(20).itemsCenter().clip();
             defer box.end();
-            ui.text(c, names.items[0], .{ .size = 13, .weight = .medium, .color = k.text, .wrap = true });
+            ui.text(c, names.items[0], .{ .size = 13, .weight = .medium, .color = k.text, .truncate = .middle });
         } else {
-            const crumb = ui.div(c).control();
+            // An ancestor: its own room, and cut at its end. Clicking it
+            // goes there.
+            const crumb = ui.div(c).row().h(20).maxW(160).itemsCenter().clip().control();
             const it = crumb.interaction();
-            ui.text(c, names.items[i], .{ .size = 13, .color = if (it.hovered) k.text else k.secondary });
-            crumb.end();
+            defer crumb.end();
+            ui.text(c, names.items[i], .{ .size = 13, .color = if (it.hovered) k.text else k.secondary, .truncate = .ellipsis });
             if (it.clicked) openPath(s, paths.items[i]);
         }
     }

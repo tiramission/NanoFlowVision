@@ -139,7 +139,7 @@ pub fn view(s: *app.State, c: *ui.Context, pic: *model.Picture, place: masonry.P
         {
             const room = ui.div(c).row().grow().itemsCenter().clip();
             defer room.end();
-            ui.text(c, pic.name, .{ .size = 13, .color = ui.Color.white });
+            ui.text(c, pic.name, .{ .size = 13, .color = ui.Color.white, .truncate = .middle });
         }
         if (s.shared.measuredOf(pic.path)) |known| {
             if (known.bytes > 0) {

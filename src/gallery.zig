@@ -21,12 +21,22 @@ const theme = @import("theme.zig");
 const thumbs = @import("thumbs.zig");
 const tile = @import("tile.zig");
 
-/// How far ahead the thumbnails are asked for, in windows.
-const prefetch_ahead: f32 = 4.0;
-/// How far behind, in windows: less, because the view came from there.
-const prefetch_behind: f32 = 1.0;
-/// How far above and below the window pictures are built, in windows.
-const build_margin: f32 = 0.25;
+/// How far ahead the thumbnails are asked for, in windows. A window of a
+/// thousand pictures is not decoded in a second: the room has to be asked
+/// for far enough ahead that the pictures are there when the eye arrives,
+/// and a wheel thrown hard arrives quickly.
+const prefetch_ahead: f32 = 10.0;
+/// How far behind, in windows: less, because the view came from there --
+/// but still enough that turning back does not find blanks.
+const prefetch_behind: f32 = 3.0;
+/// How far above and below the window pictures are built, in windows: the
+/// tiles themselves, which is cheap, against the thumbnails, which is not.
+const build_margin: f32 = 0.75;
+/// The most pictures asked for in one frame. Without a cap a jump to the
+/// end of a large folder would queue a thousand decodes before the frame
+/// the reader is looking at gets one; with it, the next frames carry on
+/// where this one stopped, and the ones nearest the window are first.
+const ask_budget: usize = 240;
 
 /// Which way the cursor walks: across the columns, or along one.
 const Walk = enum { left, right, up, down };
@@ -213,19 +223,56 @@ fn viewGrid(s: *app.State, c: *ui.Context) void {
     s.first_picture = null;
     s.built = 0;
     var waiting: usize = 0;
-    for (s.shown, 0..) |pic, i| {
-        // The layout may still be the last folder's, or not made yet:
-        // a picture with no place waits for the frame that gives it one
-        // rather than reading past what there is.
+
+    // What to ask for, nearest the window first: a picture half a screen
+    // away is worth decoding before one eight screens away, so the frames
+    // that follow fill the gap the reader is about to reach. The list is
+    // the pictures in the prefetch room, sorted by how far their middle is
+    // from the window's middle -- which is the order the eye travels in.
+    var ask_list: std.ArrayList(usize) = .empty;
+    defer ask_list.deinit(s.gpa);
+    for (s.shown, 0..) |_, i| {
+        // The layout may still be the last folder's, or not made yet: a
+        // picture with no place waits for the frame that gives it one.
         if (i >= s.layout.placements.len) break;
         const place = s.layout.placements[i];
         const top = place.y - offset;
         const bottom = place.y + place.h - offset;
         if (bottom < -behind or top > view_h + ahead) continue;
-        // The thumbnail is asked for now, at the side the current
-        // density shows it at, whether the picture is built this frame
-        // or not.
-        s.pool.askPicture(pic.path, pic.path, s.density.side());
+        ask_list.append(s.gpa, i) catch {};
+    }
+    const Ctx = struct {
+        placements: []const masonry.Placement,
+        offset: f32,
+        view_h: f32,
+        fn distance(ctx: @This(), i: usize) f32 {
+            const p = ctx.placements[i];
+            const mid = p.y + p.h / 2 - ctx.offset;
+            const screen_mid = ctx.view_h / 2;
+            return @abs(mid - screen_mid);
+        }
+        fn lessThan(ctx: @This(), a: usize, b: usize) bool {
+            return ctx.distance(a) < ctx.distance(b);
+        }
+    };
+    std.mem.sort(usize, ask_list.items, Ctx{ .placements = s.layout.placements, .offset = offset, .view_h = view_h }, Ctx.lessThan);
+
+    // Asked for nearest first, and only so many this frame: a jump to the
+    // end of a large folder must not queue a thousand decodes before the
+    // frame the reader is looking at gets one. The rest come next frame.
+    for (ask_list.items, 0..) |i, k| {
+        if (k >= ask_budget) break;
+        s.pool.askPicture(s.shown[i].path, s.shown[i].path, s.density.side());
+    }
+
+    // Then the wall itself: every picture in the prefetch room is kept in
+    // the cache, and the ones in the build margin are drawn.
+    for (s.shown, 0..) |pic, i| {
+        if (i >= s.layout.placements.len) break;
+        const place = s.layout.placements[i];
+        const top = place.y - offset;
+        const bottom = place.y + place.h - offset;
+        if (bottom < -behind or top > view_h + ahead) continue;
         if (s.shared.get(pic.path)) |known| {
             if (known.thumb == null) waiting += 1;
         } else waiting += 1;

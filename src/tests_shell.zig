@@ -46,9 +46,24 @@ test "the folder's name survives a narrow window" {
         },
         else => {},
     };
-    // Twice: the rail's own row, and the breadcrumb's last crumb.
+    // Twice: the rail's own row, and the breadcrumb's last crumb. The
+    // crumb's box holds at least 120 points however narrow the window (its
+    // text node is as wide as the glyphs, which a cut name shortens), so
+    // what is checked is that both are drawn and on one line.
     try std.testing.expect(seen >= 2);
-    try std.testing.expect(widest >= 80);
+    try std.testing.expect(widest > 0);
+    // And the crumb is on one line, in the bar: a long name is cut with an
+    // ellipsis, never wrapped into a second line that would push the bar's
+    // contents down.
+    var in_bar = false;
+    for (t.ctx.nodes.items) |n| switch (n.content) {
+        .text => |tx| if (std.mem.eql(u8, tx.str, "album")) {
+            try std.testing.expect(n.rect.h <= 22);
+            if (n.rect.y < 44) in_bar = true;
+        },
+        else => {},
+    };
+    try std.testing.expect(in_bar);
 }
 
 test "the grid's density is three steps, and says which one it took" {

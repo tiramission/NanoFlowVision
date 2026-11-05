@@ -156,7 +156,7 @@ fn folderRow(s: *app.State, c: *ui.Context, k: theme.Colors, folder: *model.Fold
             defer chip.end();
             ui.icon(c, "folder", .{ .size = 11, .color = if (on) k.on_picked else k.accent });
         }
-        ui.text(c, folder.name, .{ .size = 13, .weight = if (on) .semibold else .regular, .color = fg });
+        ui.text(c, folder.name, .{ .size = 13, .weight = if (on) .semibold else .regular, .color = fg, .truncate = .middle });
         ui.spacer(c);
         if (folder.pictures.len > 0) {
             ui.textf(c, .{ .size = 11, .mono = true, .color = if (on) k.on_picked.alpha(0.8) else k.secondary }, "{d}", .{folder.pictures.len});

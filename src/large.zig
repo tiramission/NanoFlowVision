@@ -283,19 +283,15 @@ pub fn view(s: *app.State, c: *ui.Context) void {
                 if (s.panning) {
                     s.pan_tx += c.input.mouse.x - s.last_mouse_x;
                     s.pan_ty += c.input.mouse.y - s.last_mouse_y;
+                    // The hand took the picture: from here the pan is the
+                    // reader's, and the wheel picks the anchor up again.
+                    zoom_mod.dragged(s);
                     const bw = img_w * zoom;
                     const bh = img_h * zoom;
                     const ox = @max(0, (bw - room_w) / 2);
                     const oy = @max(0, (bh - room_h) / 2);
                     s.pan_tx = std.math.clamp(s.pan_tx, -ox, ox);
                     s.pan_ty = std.math.clamp(s.pan_ty, -oy, oy);
-                    if (s.anchor) |*a| {
-                        const left = (c.size.w - bw) / 2 + s.pan_tx;
-                        const top = top_room + (room_h - bh) / 2 + s.pan_ty;
-                        a.x = std.math.clamp((c.input.mouse.x - left) / bw, 0, 1);
-                        a.y = std.math.clamp((c.input.mouse.y - top) / bh, 0, 1);
-                        s.anchor_mouse = .{ .x = c.input.mouse.x, .y = c.input.mouse.y };
-                    }
                     c.changed = true;
                 }
                 s.panning = true;
@@ -365,7 +361,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             .bg(k.scrim);
         defer bar.end();
         ui.textf(c, .{ .size = 13, .mono = true, .color = ui.Color.white.alpha(0.7) }, "{d} / {d}", .{ at + 1, s.shown.len });
-        ui.text(c, pic.name, .{ .size = 13, .color = .white });
+        ui.text(c, pic.name, .{ .size = 13, .color = .white, .truncate = .middle });
         ui.spacer(c);
         if (editable(pic.name)) {
             var st: i8 = 1;

@@ -33,19 +33,20 @@ test "snapshot: the grid, lit and chosen" {
     try tests_mod.waitForLayout(&t, state);
     t.frame();
 
-    // Three chosen, the keyboard on the second, the pointer on a
-    // corner chip: what a culling afternoon looks like.
-    const p1 = state.layout.placements[1];
-    t.click(state.grid_x + p1.x + p1.w / 2, state.grid_y + p1.y - state.grid_offset + p1.h / 2);
-    t.ctx.input.ctrl = true;
-    const p2 = state.layout.placements[2];
-    t.click(state.grid_x + p2.x + p2.w / 2, state.grid_y + p2.y - state.grid_offset + p2.h / 2);
+    // Three chosen, the keyboard on the second, the pointer on a corner
+    // chip: what a culling afternoon looks like. The state is set rather
+    // than clicked tile by tile -- a click also moves the cursor, and the
+    // view follows the cursor, so a click-driven setup can scroll the wall
+    // away from the row it means to show.
+    state.select.only(state.shown[1], 1);
+    state.select.toggle(state.shown[2], 2);
+    state.select.toggle(state.shown[3], 3);
+    state.select.cursor = 1;
+    state.scroll_to_top = true;
+    t.settle(0.2);
+    // The pointer on a corner chip, in the first row.
     const p3 = state.layout.placements[3];
-    t.click(state.grid_x + p3.x + p3.w / 2, state.grid_y + p3.y - state.grid_offset + p3.h / 2);
-    t.ctx.input.ctrl = false;
-    t.key(.down);
-    const p5 = state.layout.placements[5];
-    t.moveTo(state.grid_x + p5.x + p5.w - 10, state.grid_y + p5.y - state.grid_offset + 10);
+    t.moveTo(state.grid_x + p3.x + p3.w - 10, state.grid_y + p3.y - state.grid_offset + 10);
     t.frame();
     try shots.shot(&t, "docs/redesign/shots/grid-light.png");
 }

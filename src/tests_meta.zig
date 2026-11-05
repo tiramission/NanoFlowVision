@@ -252,7 +252,7 @@ test "the settings panel switches the language, and it persists" {
 
 test "snapshot: the interface in chinese" {
     const gpa = std.testing.allocator;
-    var sample = try tests_mod.makeSample(gpa);
+    var sample = try tests_mod.makeShotFolder(gpa, "grid-zh", 1);
     defer sample.deinit(gpa);
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
@@ -284,7 +284,7 @@ test "snapshot: the settings panel open" {
 
 test "snapshot: the picture menu and the dark settings" {
     const gpa = std.testing.allocator;
-    var sample = try tests_mod.makeSample(gpa);
+    var sample = try tests_mod.makeShotFolder(gpa, "menu-dark", 1);
     defer sample.deinit(gpa);
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();

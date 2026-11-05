@@ -77,21 +77,26 @@ pub fn step(s: *app.State, c: *ui.Context, room: Room, wheel: f32, toggle_fit: b
     // and the zoom easing separately and drifting apart.
     const zoom = c.animate(zoom_anim, 0, s.zoom_target orelse room.fit, 20);
     s.zoom = zoom;
+    // With an anchor, the pan is derived from it -- that is what keeps the
+    // point under the pointer. Without one, the picture is where the reader
+    // dragged it, and the pan stays as it is: a picture at 1:1 is bigger than
+    // the room, so it is draggable, and zeroing the pan here every frame is
+    // what made a double click's zoom refuse to be dragged.
     if (s.anchor) |a| {
         const bw = room.img_w * zoom;
         const bh = room.img_h * zoom;
         s.pan_tx = s.anchor_mouse.x - ((c.size.w - bw) / 2 + a.x * bw);
         s.pan_ty = s.anchor_mouse.y - (room.top + (room.h - bh) / 2 + a.y * bh);
-        // A picture that still overflows may not leave the room empty at
-        // its edges; one that no longer overflows is put back in the
-        // middle.
+    }
+    // A picture that still overflows may not leave the room empty at its
+    // edges; one that no longer overflows is put back in the middle.
+    {
+        const bw = room.img_w * zoom;
+        const bh = room.img_h * zoom;
         const ox = @max(0, (bw - room.w) / 2);
         const oy = @max(0, (bh - room.h) / 2);
         if (ox <= 0) s.pan_tx = 0 else s.pan_tx = std.math.clamp(s.pan_tx, -ox, ox);
         if (oy <= 0) s.pan_ty = 0 else s.pan_ty = std.math.clamp(s.pan_ty, -oy, oy);
-    } else {
-        s.pan_tx = 0;
-        s.pan_ty = 0;
     }
     return .{ .zoom = zoom, .pan_x = s.pan_tx, .pan_y = s.pan_ty };
 }
@@ -122,11 +127,19 @@ pub fn cycle(s: *app.State) void {
     centre(s);
 }
 
-/// The middle of the picture stays put: the anchor goes, and the pan with it.
+/// A mode change puts the middle of the picture in the middle of the room.
+/// It is an anchor like any other, so a later wheel or drag starts from
+/// here instead of from nothing.
 fn centre(s: *app.State) void {
-    s.anchor = null;
+    s.anchor = .{ .x = 0.5, .y = 0.5 };
     s.pan_tx = 0;
     s.pan_ty = 0;
+}
+
+/// The reader took hold of the picture and moved it: the pan is now the
+/// reader's, not the anchor's.
+pub fn dragged(s: *app.State) void {
+    s.anchor = null;
 }
 
 test "the modes trade places as the keys say" {

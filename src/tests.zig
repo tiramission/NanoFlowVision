@@ -11,6 +11,7 @@ comptime {
     _ = @import("tests_select.zig");
     _ = @import("keys.zig");
     _ = @import("tests_details.zig");
+    _ = @import("tests_zoom.zig");
     _ = @import("shots.zig");
     _ = @import("tests_gpu.zig");
     _ = @import("tests_shots.zig");
@@ -67,11 +68,10 @@ pub fn makeSampleWith(gpa: std.mem.Allocator, count: usize) !Sample {
 
 /// A folder for a snapshot, at a path that does not change: the tester's
 /// own temporary folders are named at random, and a snapshot carrying one
-/// would differ on every run -- leaving a binary change to commit every
-/// time. This one lives at `.zig-cache/shots/<name>`, emptied first.
+/// would differ on every run, leaving a binary change to commit each time.
+/// This one lives at `.zig-cache/shots/<name>`, emptied first.
 pub const ShotFolder = struct {
     path: []u8,
-
     pub fn deinit(f: ShotFolder, gpa: std.mem.Allocator) void {
         gpa.free(f.path);
     }
