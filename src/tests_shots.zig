@@ -322,14 +322,21 @@ test "snapshot: the measuring under way" {
 test "snapshot: the folder that cannot be read" {
     try ensureDir();
     const gpa = std.testing.allocator;
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    // A fixed path: the dialog names the folder it could not read, and
+    // one named at random would differ in the picture on every run. The
+    // home is set so the path is drawn from the home down, which keeps
+    // this machine's own directories out of a picture that ships with the
+    // docs.
     const cwd = try std.process.currentPathAlloc(std.testing.io, gpa);
     defer gpa.free(cwd);
-    const path = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/tmp/{s}/nowhere", .{ cwd, tmp.sub_path });
+    const path = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/shots/unreadable/nowhere", .{cwd});
     defer gpa.free(path);
     const state = try app.State.create(gpa, std.testing.io, path);
     defer state.deinit();
+    // The home is where the shot's own path starts, so the dialog writes
+    // it from there down and this machine's directories stay out of the
+    // picture.
+    try state.setHome(cwd);
     var t: ui.Tester = undefined;
     try tests_mod.initTester(&t, gpa, state, 1280, 800);
     defer t.deinit();
@@ -343,26 +350,26 @@ test "snapshot: the folder that cannot be read" {
 test "snapshot: the choice the filter took off the wall" {
     try ensureDir();
     const gpa = std.testing.allocator;
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    // A fixed folder: the window's title is the folder's name, and one
+    // named at random would differ in the picture on every run.
+    const folder = try tests_mod.makeShotFolder(gpa, "hidden", 0);
+    defer folder.deinit(gpa);
     const f = exif.Fixture.build(.little);
     const jpeg = try tests_mod.exifJpeg(gpa, &f);
     defer gpa.free(jpeg);
     const stars = [_]i8{ 5, 3, 1 };
     const names = [_][]const u8{ "a.jpg", "b.jpg", "c.jpg" };
-    const cwd = try std.process.currentPathAlloc(std.testing.io, gpa);
-    defer gpa.free(cwd);
-    const dir_path = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/tmp/{s}", .{ cwd, tmp.sub_path });
-    defer gpa.free(dir_path);
     for (names, 0..) |name, i| {
-        try tmp.dir.writeFile(std.testing.io, .{ .sub_path = name, .data = jpeg[0..] });
+        const fp = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ folder.path, name });
+        defer gpa.free(fp);
+        const rel = try std.fmt.allocPrint(gpa, ".zig-cache/shots/hidden/{s}", .{name});
+        defer gpa.free(rel);
+        try std.Io.Dir.cwd().writeFile(std.testing.io, .{ .sub_path = rel, .data = jpeg[0..] });
         var m: exif.Meta = .{};
         m.rating = stars[i];
-        const fp = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, name });
-        defer gpa.free(fp);
         try xmp.rewriteFile(gpa, std.testing.io, fp, &m);
     }
-    const path = dir_path;
+    const path = folder.path;
     const state = try app.State.create(gpa, std.testing.io, path);
     defer state.deinit();
     var t: ui.Tester = undefined;
@@ -516,4 +523,49 @@ test "snapshot: filled, the picture covers the room" {
     const at = state.large_at;
     try std.testing.expect(at.w >= 1280 - 60 or at.h >= 800 - 60);
     try shots.shot(&t, "docs/redesign/shots/lightbox-fill.png");
+}
+
+test "snapshot: the look at 1:1 under the pointer" {
+    try ensureDir();
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeShotFolder(gpa, "peek", 1);
+    defer sample.deinit(gpa);
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const f = exif.Fixture.build(.little);
+    const jpeg = try tests_mod.exifJpeg(gpa, &f);
+    defer gpa.free(jpeg);
+    try std.Io.Dir.cwd().writeFile(std.testing.io, .{ .sub_path = ".zig-cache/shots/peek/a.jpg", .data = jpeg });
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 1280, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+
+    t.key(.down);
+    t.settle(0.1);
+    t.typeText(" ");
+    t.settle(0.2);
+    const key = try thumbs.largeKey(gpa, state.large.?.path);
+    defer gpa.free(key);
+    for (0..400) |_| {
+        t.frame();
+        if (state.shared.get(key)) |known| {
+            if (known.thumb != null) break;
+        }
+        std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake) catch {};
+    }
+    t.settle(0.3);
+    t.frame();
+    // Hold the left button on the photograph, away from its middle.
+    const at = state.large_at;
+    t.moveTo(at.x + at.w * 0.3, at.y + at.h * 0.7);
+    t.ctx.input.button = .left;
+    t.ctx.pointerDown();
+    t.frame();
+    t.settle(1.2);
+    try std.testing.expectEqual(app.ZoomMode.actual, state.zoom_mode);
+    try shots.shot(&t, "docs/redesign/shots/peek.png");
 }

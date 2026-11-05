@@ -20,6 +20,11 @@ const decode = @import("decode.zig");
 const thumbs = @import("thumbs.zig");
 const exif = @import("exif.zig");
 const theme = @import("theme.zig");
+const samples = @import("samples.zig");
+pub const Sample = samples.Sample;
+pub const makeSample = samples.makeSample;
+pub const makeSampleWith = samples.makeSampleWith;
+pub const makeBigSample = samples.makeBigSample;
 
 /// A tester that draws the app in the room it is actually in. A window
 /// hands its theme to the surface; a tester has to be told, or the kit's
@@ -27,43 +32,6 @@ const theme = @import("theme.zig");
 /// while everything the views paint is dressed in ours.
 pub fn initTester(t: *ui.Tester, gpa: std.mem.Allocator, state: *app.State, w: f32, h: f32) !void {
     try t.init(gpa, .init(state, app.State.view), .{ .width = w, .height = h, .theme = theme.forDark(state.dark) });
-}
-
-/// A folder with a red square in it, and where it is.
-const Sample = struct {
-    tmp: std.testing.TmpDir,
-    path: []u8,
-
-    pub fn deinit(s: *Sample, gpa: std.mem.Allocator) void {
-        gpa.free(s.path);
-        s.tmp.cleanup();
-    }
-};
-
-pub fn makeSample(gpa: std.mem.Allocator) !Sample {
-    return makeSampleWith(gpa, 1);
-}
-
-/// A folder with `count` red squares in it, and where it is.
-pub fn makeSampleWith(gpa: std.mem.Allocator, count: usize) !Sample {
-    var tmp = std.testing.tmpDir(.{});
-    errdefer tmp.cleanup();
-
-    // Red squares, as PNGs the app can read.
-    var red = [_]u8{ 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255 };
-    const png = try ui.png.encode(gpa, .{ .bytes = red[0..], .width = 2, .height = 2 });
-    defer gpa.free(png);
-    var i: usize = 0;
-    while (i < count) : (i += 1) {
-        const name = try std.fmt.allocPrint(gpa, "pic-{d}.png", .{i});
-        defer gpa.free(name);
-        try tmp.dir.writeFile(std.testing.io, .{ .sub_path = name, .data = png });
-    }
-
-    const cwd = try std.process.currentPathAlloc(std.testing.io, gpa);
-    defer gpa.free(cwd);
-    const path = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/tmp/{s}", .{ cwd, tmp.sub_path });
-    return .{ .tmp = tmp, .path = path };
 }
 
 /// A folder for a snapshot, at a path that does not change: the tester's

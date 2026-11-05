@@ -122,6 +122,41 @@ fn save(s: *app.State, pic: *model.Picture, m: *const exif.Meta) void {
     s.shared.setMeta(pic.path, m.*);
 }
 
+/// The button held down for a look, as the mode it shows: the left one
+/// at 1:1 about the pointer, the right one filling the room. Null when
+/// neither is held, and when the pointer is not on the photograph -- a
+/// press on the top bar's stars is a press on a star, not a look.
+///
+/// The look lasts as long as the button does, a drag included: the left
+/// button at 1:1 is how the picture is moved about under the hand.
+fn peekMode(s: *app.State, c: *ui.Context) ?app.ZoomMode {
+    // The button that began the look keeps it, wherever the picture moved
+    // to: the pointer was on the photograph when the press started, and
+    // checking again would end the look the moment a 1:1 picture shrank
+    // away from under the hand.
+    if (s.peek) |held| {
+        return switch (held.mode) {
+            .actual => if (c.input.down and !c.input.secondary_down) .actual else null,
+            .fill => if (c.input.secondary_down) .fill else null,
+            else => null,
+        };
+    }
+    const at = s.large_at;
+    if (at.w <= 0 or at.h <= 0) return null;
+    const m = c.input.mouse;
+    if (m.x < at.x or m.x >= at.x + at.w or m.y < at.y or m.y >= at.y + at.h) return null;
+    // The right button looks from anywhere: filling the room is always a
+    // sensible thing to want to see.
+    if (c.input.secondary_down) return .fill;
+    // The left button looks only from the fit. Once the picture is at its
+    // own pixels or wherever the wheel left it, the left button is how it
+    // is moved -- a drag, not a look -- and taking that away to show a
+    // size it is already at would be a step sideways.
+    if (s.zoom_mode != .fit) return null;
+    if (c.input.down and !c.input.secondary_down) return .actual;
+    return null;
+}
+
 /// The picture, large, over a dark room.
 pub fn view(s: *app.State, c: *ui.Context) void {
     const k = theme.colors(s.dark);
@@ -252,7 +287,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             .img_h = img_h,
             .fit = fit,
             .cover = cover,
-        }, wheel, zoom_toggle, fill_toggle);
+        }, wheel, zoom_toggle, fill_toggle, peekMode(s, c));
         const zoom = shown.zoom;
         const w = img_w * zoom;
         const h = img_h * zoom;
@@ -275,7 +310,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             if (inter.double_clicked) {
                 zoom_mod.toggleFit(s);
                 c.changed = true;
-            } else if (inter.pressed and zoom > fit + 0.01) {
+            } else if (inter.pressed and (zoom > fit + 0.01 or s.peek != null)) {
                 // Dragging moves the picture under the hand. The anchor
                 // is the point under the pointer, so it moves with it --
                 // the derivation above keeps the picture there until the

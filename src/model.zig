@@ -97,6 +97,21 @@ pub fn parentOf(path: []const u8) ?[]const u8 {
     return path[0..slash];
 }
 
+/// A path as it is worth reading: with the user's home in it, written
+/// from the home down ("~/Pictures"), so a dialog does not repeat the
+/// machine's whole directory chain. A path outside the home is its own
+/// self.
+pub fn tildeOf(gpa: std.mem.Allocator, home: ?[]const u8, path: []const u8) ![]const u8 {
+    const h = home orelse return gpa.dupe(u8, path);
+    if (h.len == 0 or path.len <= h.len) return gpa.dupe(u8, path);
+    if (!std.mem.startsWith(u8, path, h)) return gpa.dupe(u8, path);
+    // Only at a directory boundary: a home of "/home/ann" must not claim
+    // "/home/annex".
+    const sep = std.fs.path.sep;
+    if (path[h.len] != '/' and path[h.len] != sep) return gpa.dupe(u8, path);
+    return std.fmt.allocPrint(gpa, "~{s}", .{path[h.len..]});
+}
+
 /// The last part of a path.
 pub fn nameOf(path: []const u8) []const u8 {
     const slash = std.mem.lastIndexOfScalar(u8, path, '/') orelse return path;

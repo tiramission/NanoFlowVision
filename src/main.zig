@@ -31,6 +31,13 @@ fn runApp(nanoui_app: *nanoui.App, init: std.process.Init) !void {
     defer init.gpa.free(root);
 
     const state = try app.State.create(gpa, init.io, root);
+    // Where the user's files live: a path under it is drawn from the
+    // home down ("~/Pictures"), so the machine's own chain does not
+    // repeat in every bar.
+    try state.setHome(if (@import("builtin").os.tag == .windows)
+        init.environ_map.get("USERPROFILE")
+    else
+        init.environ_map.get("HOME"));
     // The state is torn down after the app: the app's own destroy closes
     // the window, and the window's on_close still reads the state. Defers
     // run backwards, so the state's comes first.

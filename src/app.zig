@@ -43,6 +43,10 @@ const max_columns: usize = 12;
 /// (cropped), at its own pixels, or wherever the wheel left it.
 pub const ZoomMode = enum { fit, fill, actual, free };
 
+/// A button held down for a look: `mode` is what the view shows meanwhile,
+/// and the state it was in before is what comes back when it is let go.
+pub const Peek = struct { mode: ZoomMode, before: ZoomMode };
+
 /// The window's own name, when nothing else is being said in the title.
 pub const app_name = "NanoFlowVision";
 
@@ -65,6 +69,11 @@ pub const State = struct {
     rail_visible: bool = true,
     /// The folder the gallery shows.
     current: ?*model.Folder = null,
+    /// The user's home directory, when there is one: paths under it are
+    /// drawn from the home down ("~/Pictures"), so a long path says where
+    /// it is instead of repeating the machine's whole directory chain.
+    /// Null in a test, which has no home and does not need one.
+    home: ?[]const u8 = null,
     /// Where the pictures sit.
     layout: masonry.Layout = .{},
     aspects: []f32 = &.{},
@@ -195,6 +204,11 @@ pub const State = struct {
     zoom_mode: ZoomMode = .fit,
     zoom: f32 = 1,
     zoom_target: ?f32 = null,
+    /// A button held down puts the view in a temporary mode -- the left
+    /// button at 1:1 under the pointer, the right one filling the room --
+    /// and this holds the mode to go back to when it is let go. Null when
+    /// nothing is held.
+    peek: ?Peek = null,
     /// Where the picture sits in the room, in points from its own centre.
     /// Derived from the anchor every frame, so it follows the zoom that
     /// is actually drawn.
@@ -254,6 +268,7 @@ pub const State = struct {
         s.* = .{
             .gpa = gpa,
             .io = io,
+
             .shared = .{ .gpa = gpa, .io = io },
             .pool = .{ .gpa = gpa, .io = io, .shared = &s.shared },
             .tree = .{ .path = root_path, .name = root_name, .expanded = true },
@@ -264,6 +279,14 @@ pub const State = struct {
         try s.pool.start(gpa, io, &s.shared);
         s.open(&s.tree);
         return s;
+    }
+
+    /// The user's home, as the environment named it. A test does not call
+    /// this: its folders are already short, and its snapshots must not
+    /// carry this machine's directories.
+    pub fn setHome(s: *State, home: ?[]const u8) !void {
+        if (s.home) |old| s.gpa.free(old);
+        s.home = if (home) |h| if (h.len > 0) try s.gpa.dupe(u8, h) else null else null;
     }
 
     pub fn deinit(s: *State) void {
@@ -279,6 +302,7 @@ pub const State = struct {
         s.gpa.free(s.aspects);
         if (s.large_key) |key| s.gpa.free(key);
         if (s.reroot_pending) |path| s.gpa.free(path);
+        if (s.home) |h| s.gpa.free(h);
         s.keep.deinit(s.gpa);
         for (s.history.items) |p| s.gpa.free(p);
         s.history.deinit(s.gpa);

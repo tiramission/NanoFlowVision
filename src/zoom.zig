@@ -31,9 +31,34 @@ pub const Shown = struct { zoom: f32, pan_x: f32, pan_y: f32 };
 
 /// Reads the mode keys and the wheel, then eases the zoom and derives the
 /// pan that holds the anchor under the pointer. Returns what to draw.
-pub fn step(s: *app.State, c: *ui.Context, room: Room, wheel: f32, toggle_fit: bool, toggle_fill: bool) Shown {
+///
+/// `peek` is a button held down for a look: the left one at 1:1 about the
+/// pointer, the right one filling the room. The mode it was in is kept and
+/// comes back when the button is let go.
+pub fn step(s: *app.State, c: *ui.Context, room: Room, wheel: f32, toggle_fit: bool, toggle_fill: bool, peek: ?app.ZoomMode) Shown {
     if (toggle_fit) toggleFit(s);
     if (toggle_fill) toggleFill(s);
+
+    // A held button, and the moment it is let go.
+    if (peek) |want| {
+        if (s.peek == null) {
+            s.peek = .{ .mode = want, .before = s.zoom_mode };
+            s.zoom_mode = want;
+            if (want == .actual) {
+                // At 1:1 the point under the pointer stays under it, the
+                // way the wheel would put it there.
+                anchorAt(s, c, room);
+            } else {
+                centre(s);
+            }
+        }
+    } else if (s.peek != null) {
+        const was = s.peek.?;
+        s.peek = null;
+        s.zoom_mode = was.before;
+        centre(s);
+    }
+
     // The mode says what the zoom is trying to be; "fill" follows the
     // room, so its value is worked out here rather than stored.
     switch (s.zoom_mode) {
@@ -140,6 +165,20 @@ fn centre(s: *app.State) void {
 /// reader's, not the anchor's.
 pub fn dragged(s: *app.State) void {
     s.anchor = null;
+}
+
+/// The anchor at the pointer, from the frame as it is drawn now.
+fn anchorAt(s: *app.State, c: *ui.Context, room: Room) void {
+    const bw = room.img_w * s.zoom;
+    const bh = room.img_h * s.zoom;
+    const left = (c.size.w - bw) / 2 + s.pan_tx;
+    const top = room.top + (room.h - bh) / 2 + s.pan_ty;
+    if (bw <= 0 or bh <= 0) return;
+    s.anchor = .{
+        .x = std.math.clamp((c.input.mouse.x - left) / bw, 0, 1),
+        .y = std.math.clamp((c.input.mouse.y - top) / bh, 0, 1),
+    };
+    s.anchor_mouse = .{ .x = c.input.mouse.x, .y = c.input.mouse.y };
 }
 
 test "the modes trade places as the keys say" {

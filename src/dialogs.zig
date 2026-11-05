@@ -77,7 +77,10 @@ pub fn brokenFolder(s: *app.State, c: *ui.Context) void {
     const tr = i18n.strings(s.lang);
     const d = kit.dialog(c, "folder-broken", &s.folder_broken, .{
         .title = tr.folder_unreadable,
-        .description = if (s.current) |f| f.path else "",
+        .description = if (s.current) |f|
+            model.tildeOf(c.alloc(), s.home, f.path) catch f.path
+        else
+            "",
         .ok = tr.choose_other_folder,
         .cancel = "",
         .close_button = false,

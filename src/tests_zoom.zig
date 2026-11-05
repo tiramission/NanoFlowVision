@@ -316,3 +316,175 @@ test "the wall asks for the pictures nearest the window first" {
     }
     try std.testing.expect(ready == @min(12, state.shown.len));
 }
+
+test "holding the left button looks at 1:1, and letting go puts it back" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 2);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 900, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+
+    t.key(.down);
+    t.settle(0.1);
+    t.typeText(" ");
+    t.settle(0.2);
+    try std.testing.expect(state.large != null);
+    const key = try thumbs.largeKey(gpa, state.large.?.path);
+    defer gpa.free(key);
+    for (0..400) |_| {
+        t.frame();
+        if (state.shared.get(key)) |known| {
+            if (known.thumb != null) break;
+        }
+        std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake) catch {};
+    }
+    t.settle(0.2);
+    t.frame();
+    try std.testing.expectEqual(app.ZoomMode.fit, state.zoom_mode);
+
+    // Hold the left button on the picture: 1:1, and the point under the
+    // pointer stays under it.
+    const at = state.large_at;
+    const px = at.x + at.w * 0.3;
+    const py = at.y + at.h * 0.7;
+    t.moveTo(px, py);
+    t.ctx.input.button = .left;
+    t.ctx.pointerDown();
+    t.frame();
+    try std.testing.expect(state.peek != null);
+    try std.testing.expectEqual(app.ZoomMode.actual, state.zoom_mode);
+    t.settle(1.2);
+    t.frame();
+    try std.testing.expect(state.zoom_target != null);
+    // The picture is at 1:1: one of its pixels is one point. (The test
+    // picture is 2x2, so 1:1 is smaller than the fit -- the zoom value is
+    // what says which mode it is in.)
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), state.zoom, 0.02);
+
+    // Let go: the fit comes back, and the mode with it.
+    t.ctx.pointerUp();
+    t.ctx.input.button = .left;
+    t.frame();
+    try std.testing.expect(state.peek == null);
+    try std.testing.expectEqual(app.ZoomMode.fit, state.zoom_mode);
+    t.settle(1.2);
+    t.frame();
+    try std.testing.expectEqual(@as(?f32, null), state.zoom_target);
+}
+
+test "holding the right button fills the room, and letting go puts it back" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 2);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 900, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+
+    t.key(.down);
+    t.settle(0.1);
+    t.typeText(" ");
+    t.settle(0.2);
+    const key = try thumbs.largeKey(gpa, state.large.?.path);
+    defer gpa.free(key);
+    for (0..400) |_| {
+        t.frame();
+        if (state.shared.get(key)) |known| {
+            if (known.thumb != null) break;
+        }
+        std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake) catch {};
+    }
+    t.settle(0.2);
+    t.frame();
+
+    // The right button held: the room is covered.
+    const at = state.large_at;
+    t.moveTo(at.x + at.w / 2, at.y + at.h / 2);
+    t.ctx.input.button = .right;
+    t.ctx.secondaryDown();
+    t.frame();
+    try std.testing.expectEqual(app.ZoomMode.fill, state.zoom_mode);
+    t.settle(1.2);
+    t.frame();
+    const filled = state.large_at;
+    try std.testing.expect(filled.w >= 900 - 60 or filled.h >= 800 - 60);
+
+    // Let go: back where it was.
+    t.ctx.pointerUp();
+    t.ctx.input.button = .right;
+    t.frame();
+    try std.testing.expectEqual(app.ZoomMode.fit, state.zoom_mode);
+    t.settle(1.2);
+    t.frame();
+    try std.testing.expectEqual(@as(?f32, null), state.zoom_target);
+}
+
+test "the look at 1:1 can be dragged under the held button" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeBigSample(gpa, 2);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 900, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+
+    t.key(.down);
+    t.settle(0.1);
+    t.typeText(" ");
+    t.settle(0.2);
+    const key = try thumbs.largeKey(gpa, state.large.?.path);
+    defer gpa.free(key);
+    for (0..400) |_| {
+        t.frame();
+        if (state.shared.get(key)) |known| {
+            if (known.thumb != null) break;
+        }
+        std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake) catch {};
+    }
+    t.settle(0.2);
+    t.frame();
+
+    // Hold the left button, then move the pointer: the picture must follow
+    // it, and the look must survive the movement.
+    const at = state.large_at;
+    t.moveTo(at.x + at.w / 2, at.y + at.h / 2);
+    t.ctx.input.button = .left;
+    t.ctx.pointerDown();
+    t.frame();
+    t.settle(1.2);
+    t.frame();
+    try std.testing.expectEqual(app.ZoomMode.actual, state.zoom_mode);
+
+    const before = state.pan_tx;
+    const cx = at.x + at.w / 2;
+    const cy = at.y + at.h / 2;
+    t.moveTo(cx + 30, cy + 20);
+    t.frame();
+    t.moveTo(cx + 60, cy + 40);
+    t.frame();
+    t.frame();
+    try std.testing.expect(state.peek != null);
+    try std.testing.expectEqual(app.ZoomMode.actual, state.zoom_mode);
+    // The pan moved (or the clamp at an edge stopped it, which is also a
+    // picture that was dragged and stayed where the hand put it).
+    try std.testing.expect(state.pan_tx != before or state.pan_ty != 0);
+
+    t.ctx.pointerUp();
+    t.ctx.input.button = .left;
+    t.frame();
+    try std.testing.expectEqual(app.ZoomMode.fit, state.zoom_mode);
+}

@@ -55,6 +55,8 @@ const en_keys = [_]KeyGroup{
         .{ .keys = "I", .what = "Fold the facts" },
         .{ .keys = delete_key, .what = "Bin it, then the next" },
         .{ .keys = "Wheel / drag", .what = "Zoom / pan" },
+        .{ .keys = "LMB hold", .what = "Look at 1:1 under the pointer" },
+        .{ .keys = "RMB hold", .what = "Look at it filling the room" },
     } },
     .{ .title = "Sidebar", .rows = &.{
         .{ .keys = "↑ ↓", .what = "Move the highlight" },
@@ -104,6 +106,8 @@ const zh_keys = [_]KeyGroup{
         .{ .keys = "I", .what = "收起信息" },
         .{ .keys = delete_key, .what = "回收站，然后下一张" },
         .{ .keys = "滚轮 / 拖动", .what = "缩放 / 平移" },
+        .{ .keys = "按住左键", .what = "在指针处看 1:1" },
+        .{ .keys = "按住右键", .what = "看铺满的样子" },
     } },
     .{ .title = "导航栏", .rows = &.{
         .{ .keys = "↑ ↓", .what = "移动高亮行" },
