@@ -415,6 +415,16 @@ fn gridKeys(s: *app.State, c: *ui.Context) void {
                 s.tag_editing = true;
                 s.tag_field.clear();
             }
+        } else if (ch == ' ') {
+            // Space is the quick look: the cursor's picture, large.
+            const t = targets(s, c);
+            if (t.len > 0) {
+                large.show(s, t[0]);
+                for (s.shown, 0..) |p, j| {
+                    if (p == t[0]) s.select.cursor = j;
+                }
+                c.changed = true;
+            }
         }
     }
 }

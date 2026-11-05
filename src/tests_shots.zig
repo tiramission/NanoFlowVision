@@ -11,6 +11,7 @@ const app = @import("app.zig");
 const exif = @import("exif.zig");
 const thumbs = @import("thumbs.zig");
 const xmp = @import("xmp.zig");
+const shots = @import("shots.zig");
 const tests_mod = @import("tests.zig");
 
 /// The shots' home, made once by the first test that needs it.
@@ -45,7 +46,7 @@ test "snapshot: the grid, lit and chosen" {
     const p5 = state.layout.placements[5];
     t.moveTo(state.grid_x + p5.x + p5.w - 10, state.grid_y + p5.y - state.grid_offset + 10);
     t.frame();
-    try t.screenshot("docs/redesign/shots/grid-light.png");
+    try shots.shot(&t, "docs/redesign/shots/grid-light.png");
 }
 
 test "snapshot: the grid in the dark" {
@@ -65,7 +66,7 @@ test "snapshot: the grid in the dark" {
     try tests_mod.waitForLayout(&t, state);
     t.frame();
     try std.testing.expect(state.dark);
-    try t.screenshot("docs/redesign/shots/grid-dark.png");
+    try shots.shot(&t, "docs/redesign/shots/grid-dark.png");
 }
 
 test "snapshot: the narrow window keeps its way" {
@@ -89,7 +90,7 @@ test "snapshot: the narrow window keeps its way" {
     try tests_mod.waitForLayout(&t, state);
     t.resize(760, 800);
     t.settle(0.3);
-    try t.screenshot("docs/redesign/shots/grid-narrow.png");
+    try shots.shot(&t, "docs/redesign/shots/grid-narrow.png");
 }
 
 test "snapshot: the large view, with its strip and folded facts" {
@@ -122,7 +123,7 @@ test "snapshot: the large view, with its strip and folded facts" {
     t.frame();
     t.typeText("i"); // the facts folded to a line
     t.settle(0.1);
-    try t.screenshot("docs/redesign/shots/lightbox.png");
+    try shots.shot(&t, "docs/redesign/shots/lightbox.png");
 }
 
 test "snapshot: the large view, zoomed, facts open" {
@@ -166,7 +167,7 @@ test "snapshot: the large view, zoomed, facts open" {
     state.zoom_target = 2.4;
     try std.testing.expect(state.info_open);
     t.settle(0.6);
-    try t.screenshot("docs/redesign/shots/lightbox-zoom.png");
+    try shots.shot(&t, "docs/redesign/shots/lightbox-zoom.png");
 }
 
 test "snapshot: the settings sheet over its scrim" {
@@ -183,7 +184,7 @@ test "snapshot: the settings sheet over its scrim" {
     try t.clickText("Settings");
     t.settle(0.6);
     try std.testing.expect(state.settings_open);
-    try t.screenshot("docs/redesign/shots/settings.png");
+    try shots.shot(&t, "docs/redesign/shots/settings.png");
 }
 
 test "snapshot: the empty folder" {
@@ -201,7 +202,7 @@ test "snapshot: the empty folder" {
     try t.clickText("void");
     t.settle(0.2);
     try std.testing.expectEqual(@as(usize, 0), state.current.?.pictures.len);
-    try t.screenshot("docs/redesign/shots/empty.png");
+    try shots.shot(&t, "docs/redesign/shots/empty.png");
 }
 
 test "snapshot: the search that matches nothing" {
@@ -219,7 +220,7 @@ test "snapshot: the search that matches nothing" {
     t.typeText("zzz");
     t.settle(0.2);
     try std.testing.expectEqual(@as(usize, 0), state.shown.len);
-    try t.screenshot("docs/redesign/shots/no-match.png");
+    try shots.shot(&t, "docs/redesign/shots/no-match.png");
 }
 
 test "snapshot: a tile that failed beside one still waiting" {
@@ -264,7 +265,7 @@ test "snapshot: a tile that failed beside one still waiting" {
         std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake) catch {};
     }
     t.frame();
-    try t.screenshot("docs/redesign/shots/failed.png");
+    try shots.shot(&t, "docs/redesign/shots/failed.png");
 }
 
 test "snapshot: the rail folded away" {
@@ -281,7 +282,7 @@ test "snapshot: the rail folded away" {
     _ = t.shortcut(.{ .key = 'b', .ctrl = true });
     t.settle(0.1);
     try std.testing.expect(!state.rail_visible);
-    try t.screenshot("docs/redesign/shots/rail-collapsed.png");
+    try shots.shot(&t, "docs/redesign/shots/rail-collapsed.png");
 }
 
 test "snapshot: the measuring under way" {
@@ -300,7 +301,7 @@ test "snapshot: the measuring under way" {
     state.shared.clear();
     t.frame();
     try std.testing.expect(state.shared.measuredCount() < state.current.?.pictures.len);
-    try t.screenshot("docs/redesign/shots/measuring.png");
+    try shots.shot(&t, "docs/redesign/shots/measuring.png");
 }
 
 test "snapshot: the folder that cannot be read" {
@@ -321,7 +322,7 @@ test "snapshot: the folder that cannot be read" {
     t.frame();
     try std.testing.expect(state.folder_broken);
     t.settle(0.5);
-    try t.screenshot("docs/redesign/shots/unreadable.png");
+    try shots.shot(&t, "docs/redesign/shots/unreadable.png");
 }
 
 test "snapshot: the choice the filter took off the wall" {
@@ -366,5 +367,5 @@ test "snapshot: the choice the filter took off the wall" {
     t.settle(0.3);
     try std.testing.expectEqual(@as(usize, 1), state.shown.len);
     try std.testing.expect(t.containsText("hidden by the filter"));
-    try t.screenshot("docs/redesign/shots/hidden.png");
+    try shots.shot(&t, "docs/redesign/shots/hidden.png");
 }

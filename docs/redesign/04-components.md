@@ -4,7 +4,7 @@
 画什么）、**映射**（用哪些 nanoui API、落在哪个文件）。层号按 03 §5；图中 `⎯` 表示
 1px `line` 描边。
 
-> 2026-11 的打磨偏差记在 [06-polish.md](06-polish.md)：导航栏多了根行与拖宽、
+> 2026-11 的打磨偏差记在 [06-history.md](06-history.md)：导航栏多了根行与拖宽、
 > 命令栏的 ⌘F 与 tooltip、状态条的排序与游标、大图顶条的两枚 chip、
 > 以及空态与测量中的实际形状。
 
@@ -21,24 +21,21 @@ row (w=fill, h=fill)
     ├── CommandBar   高 44
     ├── ProgressLine 高 2（只在测量中）
     ├── Grid         高 fill（唯一滚动容器）
-    └── StatusBar    高 28
+    └── StatusBar    高 27
 ```
 
-**断点规则**（窗口宽，按可用宽度而不是窗口宽判断更稳，这里用窗口宽）：
+**实际行为**（不做自动断点：窗口再窄也不折叠控件，只裁面包屑与搜索的剩余宽度）：
 
-| 宽度 | 变化 |
-|---|---|
-| ≥ 1180 | 全量命令栏：面包屑 · 计数 · 搜索(240) · 星级筛选 · 排序 · 密度 · 导航栏 · ⋯ |
-| 960–1180 | 计数移到状态条；搜索收窄到 180 |
-| 760–960 | 星级筛选折叠进 ⋯；排序按钮只留图标（文字进 tooltip） |
-| < 820 | 导航栏自动折叠（用户手动展开后不再自动收） |
-| < 760 | 命令栏 = [☰] [面包屑末段] [🔍] [⋯]；搜索点开为全宽 popover |
+- 命令栏 = [☰]（仅导航栏折叠时）· 面包屑（min 120）· 含子文件夹 chip（仅打开时）·
+  搜索（220）· 星级筛选 · 排序 · 密度 · ⋯。
+- 计数、排序状态、游标位置、监视都在状态条；命令栏不放计数。
+- 面包屑在 760 宽以下只画当前文件夹一段（`crumbs_narrow`），祖先段省略。
+- 图标钮的文字说明在 tooltip 里；菜单里才有完整选项。
 
-**硬规则**：面包屑有 `min_width = 120`，任何断点下都不得为 0 —— 这是对现状 P1 的修复。
-计数与搜索在放不下时**先折叠自己**，不是挤掉面包屑。
+**硬规则**：面包屑有 `min_width = 120`，任何宽度下都不得为 0。
 
-**映射**：`src/shell.zig`（新），`src/app.zig` 只保留 `State.view` 的编排与浮层。
-折叠状态在 `State.rail_open` / `State.rail_w`。
+**映射**：`src/shell.zig`；`src/app.zig` 只保留 `State.view` 的编排与浮层。
+折叠状态在 `State.rail_visible` / `State.rail_w`。
 
 ---
 
@@ -46,7 +43,7 @@ row (w=fill, h=fill)
 
 ```
 column (w=rail_w, bg=rail, px=10, gap=2)  ⎯→ 右侧 1px line 分隔 + 4pt 拖动热区
-├── 品牌行   h=52, px=6, gap=8：22×22 圆角 5 的 photo 图标（ink 底、page 字）+ 名称 13 bold
+├── 品牌行   h=44, px=6, gap=8：22×22 圆角 5 的 photo 图标（ink 底、page 字）+ 名称 13 bold
 ├── 分组标签 「资料库」11 semibold ink3, px=8, pt=14, pb=4
 ├── 树（滚动，grow）
 │   ├── 根行：根文件夹自身（默认展开，点击回首），缩进 7；没有子文件夹时空态行
@@ -71,13 +68,13 @@ column (w=rail_w, bg=rail, px=10, gap=2)  ⎯→ 右侧 1px line 分隔 + 4pt �
 | 焦点（树有键盘焦点） | 当前行加 1px `ink3` 内描边（与网格游标同一语言） |
 | 折叠 | chevron = `chevron.right`，子行不构建 |
 | 展开 | chevron = `chevron.down` |
-| 有子项但未读 | 计数留空，chevron 照画（现状的「一层预读」保留） |
+| 有子项但未读 | 计数留空，chevron 照画（一层预读：列子文件夹时顺带读下一层） |
 
-**交互**：单击行 → 打开；单击 chevron → 只折叠（现状保留，两个热区不重叠：chevron 16 宽、
+**交互**：单击行 → 打开；单击 chevron → 只折叠（两个热区不重叠：chevron 16 宽、
 行整体另一个热区）；拖右缘 4pt 热区 → 200–360 改宽（`c.cursor = .resize_left_right`），
 双击热区复位 240；⌘B 折叠。
 
-**映射**：`src/shell.zig` `viewRail`；折叠标志 `s.rail_open`，宽度 `s.rail_w`（写进 config）。
+**映射**：`src/shell.zig` `viewRail`；折叠标志 `s.rail_visible`，宽度 `s.rail_w`（写进 config）。
 拖动用 `c.input.pressed` + 鼠标 x，无需新 API。
 
 ---
@@ -105,7 +102,7 @@ row (h=44, px=16, gap=6, items=center)  ⎯ 底边 1px line
 **按钮的三种画法**：图标钮 = 28×28、圆角 6、悬停 `hover` 底、`kit.tooltip` 说明；
 chip = 22 高、`control` 底、圆角 5；有筛选生效时 chip 用 `accent` 底 + `on_accent` 字。
 
-**汉堡位的折叠**：`rail_open == false` 时 `[☰]` 一定在，否则不画（省下的宽度给面包屑）。
+**汉堡位的折叠**：`rail_visible == false` 时 `[☰]` 一定在，否则不画（省下的宽度给面包屑）。
 
 **三个菜单**（都用 `kit.menu`，锚点 = 触发按钮的 `interaction.rect`）：
 
@@ -117,14 +114,14 @@ chip = 22 高、`control` 底、圆角 5；有筛选生效时 chip 用 `accent` 
 
 **映射**：`src/shell.zig` `viewCommandBar`；排序/密度状态在 `State.sort` /
 `State.sort_ascending` / `State.density`；`kit.menu(c, "sort", &s.sort_menu_open, rect, items, .{})`
-返回选中下标，与现状的 `s.orderChanged()` 接上。
+返回选中下标，接到 `s.orderChanged()`。
 
 ---
 
 ## 4. 状态条 StatusBar
 
 ```
-row (h=28, px=16, gap=10, items=center)  ⎯ 顶边 1px line, bg=page
+row (h=27, px=16, gap=10, items=center)  ⎯ 顶边 1px line, bg=page
 ├── 左：已选 3 / 共 128 · 24.6 MB        13/12 mono ink2
 │       无选择时：「共 128 · 84.2 MB」
 │       有游标时追加：「第 3 张」mono
@@ -144,18 +141,16 @@ row (h=28, px=16, gap=10, items=center)  ⎯ 顶边 1px line, bg=page
 
 ## 5. 网格 Grid 与滚动指示
 
-**结构**：`c.open({ .direction = .column, .scroll = true, .clip = true })`（现状保留），
+**结构**：`c.open({ .direction = .column, .scroll = true, .clip = true })`，
 内容高度 = `s.layout.height`，再在其上：
 
-1. **滚动指示**：绝对定位在内容区右缘 4pt 处，宽 3pt、圆角 1.5，颜色 `ink3` 40%；
-   长度 = `可用高 * (可用高 / 内容高)`（最小 24），位置按 `offset / (内容高 - 可用高)` 换算。
-   滚动时出现（`c.scrollMoved(id)` 或 offset 变化），静止 1.2s 后淡出。
-2. **框选层**：绝对定位 1pt `ink3` 边 + `ink` 6% 填充的矩形，画在内容区最上层，
+1. **滚动条**：nanoui 的滚动容器自己画（右缘 4pt、`muted` 50%、总是可见）；应用不自绘，
+   也不做出现/淡出。
+2. **框选层**：绝对定位 1pt `ink3` 边 + `ink` 8% 填充的矩形，画在内容区最上层，
    但**在浮层之下**（层 0 即可）。
 3. **⋮ 悬停位置**：图块角标（见 §6）。
 
-**映射**：`src/gallery.zig`（网格循环保留，加入 §1/§2 两个自绘）+ 新的
-`src/select.zig`（选择/游标/框选状态机）。
+**映射**：`src/gallery.zig`（网格循环、空态、骨架墙）+ `src/select.zig`（选择/游标/框选）。
 
 ---
 
@@ -163,12 +158,12 @@ row (h=28, px=16, gap=10, items=center)  ⎯ 顶边 1px line, bg=page
 
 ```
 div (absolute, offset=place, w, h, 圆角 4, clip)
-├── 照片（ui.texture, fill×fill） 或 well 骨架
-├── 失败态：well + exclamationmark.triangle 14 + 「无法读取」12 ink2（居中）
-├── 星级（有评分时）左下 6,6：★×5，12 grade，黑 45% 纱底圆角 4，padding 4×2
-├── 文件名条（悬停/游标/选中时）底部 0：26 高，黑 45% 纱底，13 ink（白）
+├── 照片（ui.texture, fill×fill）或 tile 底色（等待中）
+├── 失败态：tile 底 + exclamationmark.triangle 14 + 「无法读取」12 ink2（居中）
+├── 星级（有评分时）左下 6,6：★×5，12 grade，`scrim` 纱底圆角 4，padding 4×2
+├── 文件名条（悬停/游标/选中时）底部 0：26 高，`scrim` 纱底，13 ink（白）
 │    文件名（clip）+ 尺寸 11 mono（白 70%）
-├── ⋯ chip（悬停/游标/选中时）右上 6,6：24×24 圆角 5，黑 55% 底，⋯ 13 白
+├── ⋯ chip（悬停/游标/选中时）右上 6,6：24×24 圆角 5，`scrim` 底，⋯ 13 白
 └── 勾章（选中时）左上 6,6：20×20 圆角 5，accent 底 + checkmark 12 on_accent
 ```
 
@@ -189,9 +184,8 @@ div (absolute, offset=place, w, h, 圆角 4, clip)
 **点击语义**（对应 02 §4）：单击 = 选择 + 游标；⌘ = 加选；⇧ = 连选；
 双击 = 大图；点 ⋯ = 打开菜单（锚点 = chip 的 rect，`kit.menu` 自己负责贴边翻转）。
 
-**映射**：`src/tile.zig`（新，从 `gallery.zig` 拆出 `viewPicture` 的全部角标）；
-`first_picture` 的测试钩子保留，并新增 `s.test_tiles: []ui.Rect`（每帧写出可见图块矩形），
-让测试能点到「第 3 张」而不是碰运气。
+**映射**：`src/tile.zig`。测试从 `s.layout.placements` 算图块中心，或读 `s.menu_at`，
+不靠文本节点猜位置。
 
 ---
 
@@ -224,7 +218,7 @@ div (absolute, offset=place, w, h, 圆角 4, clip)
 ```
 div (fixed, sizeFull, bg=page)          ← 房间随主题：暗房 #0E0F11 / 亮房 #F7F7F4
 ├── 照片框（absolute 居中 + 平移，w/h = 图片像素 × zoom，亮房 1px line2 + shadowMd）
-├── 顶部条 h=40（指针动时出现）
+├── 顶部条 h=44（常驻：序号、文件名、星、info/close chip）
 │   左：3 / 12（12 mono ink2）+ 文件名（13 ink）
 │   右：★★★★★（可点的星行，16，空星 = 白 45%、已评 = grade）+ info.circle 28×28 + xmark 28×28
 │       两枚 chip 都在纱底上，悬停白 16% 底，带 tooltip；xmark 关闭大图
@@ -232,22 +226,21 @@ div (fixed, sizeFull, bg=page)          ← 房间随主题：暗房 #0E0F11 / �
 │   窗口式：当前居中，左右各 7 张；缩略 48 高（宽度 = 48×aspect，44–96）
 │   当前项：2px accent 环 + 不透明；其他：opacity 0.7；不足 15 张则只画有的
 │   悬停某张 → 该张 1px line2；点击 → 跳转；滚轮停在胶片条上 → 上一张/下一张
-├── 信息块（左下；胶片条可见时让位到 76+12，否则 16）
-│   收起：一行 = 文件名 · 尺寸 · 大小（13 ink）
-│   展开（I）：+ 相机/镜头行（13）· EXIF 行（12 mono ink2）· 星级 · 标签 chips + 添加
+├── 信息块（左下；胶片条上方 12）
+│   收起：一枚 「Info」 小卡片（info.circle + 文字），点击或 I 展开
+│   展开（I）：相机/镜头行（13）· EXIF 行（12 mono）· 星级 · 标签 chips + 添加 · 键位提示
 │   底：panel + 1px line + 阴影 —— 唯一不透明卡片，因为它可能压住照片任意部分
-└── 缩放控件（右下 16,16）
-    32 高圆角 8：arrow.up.left.and.arrow.down.right 12 + 文字（「适应窗口」/「100%」/「240%」）
+└── 缩放控件（右下，胶片条上方）
+    圆角 8 砂底：文字「适应窗口」/「100%」/「240%」
     点击在「适应窗口 ⇄ 100%」之间切换；Z 同效；百分比用 mono
 ```
 
-**状态**：加载中 → 房间保持上一张（不清空）+ 右下角 `circle.dotted` + 「加载中…」，
-避免「黑屏一闪」；失败 → 居中 `exclamationmark.triangle` + 「无法读取」+ 路径（12 mono）；
-到达新图 → 120ms 淡入（`motion.present`），照片本体不做缩放动画。
+**状态**：解码中 → 居中 `circle.dotted` + 「加载中…」，帧继续来；失败 → 居中
+`exclamationmark.triangle` + 「无法读取」+ 路径（12 mono），不再等帧；
+到达新图是直接换，不淡入（照片本体不缩放、不淡入，避免「闪一下」）。
 
 **映射**：`src/large.zig`（房间、照片框、缩放保留）+ `src/filmstrip.zig`（新）+ 顶部条与
-信息块在 `large.zig` 内。胶片条需要 `s.shown` 与 `s.shared` 现状即可，不需要新的解码种类
-（用 `.picture` 的 256 缩略图）。
+信息块在 `large.zig` 内。胶片条读 `s.shown` 与 `s.shared`，不需要新的解码种类（用墙上的缩略图）。
 
 ---
 
@@ -255,16 +248,13 @@ div (fixed, sizeFull, bg=page)          ← 房间随主题：暗房 #0E0F11 / �
 
 | 场景 | 结构 | 文案 |
 |---|---|---|
-| 空目录 | `kit.empty`（图标 `photo`，标题 + 说明）+ 「打开其他目录」主按钮 | 「这里没有图片」/「支持 JPG、PNG、HEIC、WebP、AVIF 等」 |
+| 空目录 | 图标 `photo` + 标题 + 格式提示 + 「打开目录」（主）与「重新扫描」 | 「这里没有图片」/「支持 JPG、PNG、HEIC、WebP、AVIF…」 |
 | 无匹配 | 图标 `magnifyingglass` + 「清除搜索」按钮 | 「没有匹配"杭州"的图片」 |
 | 筛选后为空 | 同上 + 「清除筛选」 | 「没有 ★≥4 的图片」 |
-| 目录不可读 | 内容区顶部 `kit.alert`（danger，可关）+ 面包屑保留 | 「无法打开这个文件夹」+ 路径 |
-| 测量中 | 骨架墙（`well` 块按 1:1 铺）+ 状态条进度 + 标题栏百分比 | 「正在测量 42%」 |
+| 目录不可读 | `kit.dialog`（页后压暗） | 「无法打开这个文件夹」+ 路径 + 「打开其他目录」 |
+| 测量中 | 静态骨架墙（按密度算列数铺 `well` 块）+ 状态条进度 + 标题栏百分比 | 「正在测量 42%」 |
 
-空态整体居中于内容区**可用高度的 45%**（不是正中：视觉上正中偏低才像居中）。
-
-**映射**：`kit.display.empty` / `kit.display.alert` / `kit.display.skeleton`；
-`src/gallery.zig` 的空分支改写。
+空态整体居中于内容区。
 
 ---
 
@@ -302,8 +292,6 @@ if (kit.dialog(c, "trash", &s.trash_confirm, .{
 **映射**：`src/menu.zig`（对话框）+ `State.trash_confirm`；`kit.dialog` 的层是
 `kit.dialog.layer_backdrop = 10` / `layer_panel = 11`（框架定值，不要自造）。
 
----
-
 ## 12. 重命名框
 
 `kit.dialog` 的一次调用，body 里一个 `ui.textField`（预填全名）+ 一行内联错误（12 danger）：
@@ -311,31 +299,31 @@ if (kit.dialog(c, "trash", &s.trash_confirm, .{
 - 打开：`F2`（或菜单）；关闭：Esc / 取消 / 点遮罩。
 - 回车提交；重名 → 对话框**不关**，错误行显示「这个名字已经存在」，输入保留。
 - 成功 → 图块文件名、选择集合、缓存键、状态条同步（`shared.renameKey` + `select.rename`）。
-- 扩展名保护（只选中主名）依赖 nanoui 文本框的初始选区 API，P2 做；
-  P0 的做法是预填全名并把光标放末尾。
+- 已知限制：扩展名保护（只选中主名）依赖 nanoui 文本框的初始选区 API，目前预填全名、
+  光标在末尾；要改扩展名只能自己删字。
 
 ---
 
 ## 13. 设置面板（右侧 sheet）
 
-`kit.sheet(c, "settings", &s.settings_open, .{ .side = .right, .size = 320, .title = tr.settings })`
-—— 自带压暗层与滑入动效，天然修掉现状 P2（没有遮罩）。分组与控件：
+`kit.sheet(c, "settings", &s.settings_open, .{ .side = .right, .size = 360, .title = tr.settings })`
+—— 自带压暗层与滑入动效。分组与控件：
 
 | 分组 | 行 |
 |---|---|
-| 外观 | 跟随系统 / 亮 / 暗（`ui.segmented`，图标 + 文字）· 挑拣时压暗未选中（`ui.checkbox`）· 减少动效（`ui.checkbox`） |
 | 语言 | English / 中文（`ui.segmented`，各写各的语言） |
-| 浏览 | 包含子文件夹（`ui.checkbox`）· 网格密度（`ui.segmented` 三档） |
-| 窗口 | 记住窗口位置（`ui.checkbox`）· 导航栏宽度「复位」按钮 |
-| 页脚 | 版本号 + 「键盘一览」（P2） |
+| 外观 | 跟随系统 / 亮 / 暗（`ui.segmented`） |
+| 网格 | 小 / 中 / 大（`ui.segmented`）· 包含子文件夹（`ui.checkbox`）· 减少动效（`ui.checkbox`）· 挑拣时压暗未选中（`ui.checkbox`） |
+| 窗口 | 导航栏宽度滑杆 + 「复位宽度」 |
+| 页脚 | 「键盘」入口（⌘/，关闭 sheet 并打开一览） |
 
-改动立即生效并立即写 config（现状保留：`saveSettings()`）。
+改动立即生效并立即写 config（`saveSettings()`）。
 
 ---
 
 ## 14. 目录对话框（原生）
 
-保持不变：`⌘O` / 空态按钮 → `State.openFolderDialog()` → `nanoui.App.after(0, …)` →
+`⌘O` / 空态按钮 → `shell.askForFolder` → `nanoui.App.after(0, …)` →
 `nfd.openFolderDialog` → `queueReroot` → 下一帧 `reroot`。
 **不许**在帧内直接开原生模态（AGENTS.md 的硬规则）。
 
@@ -345,16 +333,18 @@ if (kit.dialog(c, "trash", &s.trash_confirm, .{
 
 | 组件 | 文件 | 测试钩子 |
 |---|---|---|
-| Shell / Rail / CommandBar / StatusBar | `src/shell.zig`（新，拆分自 `app.zig`） | `s.test_rail_rows: []ui.Rect` |
-| 网格 + 滚动指示 + 框选 | `src/gallery.zig` | 现状 `s.first_picture` + 新增 `s.test_tiles` |
-| 图块与角标 | `src/tile.zig`（新） | `s.test_tiles` |
-| 选择 / 游标 / 框选状态机 | `src/select.zig`（新） | `s.selected.count()`（测试可直接读） |
-| 大图 + 顶部条 + 信息块 | `src/large.zig` | `s.test_filmstrip: []ui.Rect` |
-| 胶片条 | `src/filmstrip.zig`（新） | 同上 |
-| 菜单 / 重命名 / 确认框 | `src/menu.zig` | —— |
-| toast | `src/app.zig`（`State.toaster`） | 断言 `t.hasText("已移到回收站")` |
-| 设置 | `src/shell.zig` 或 `src/settings.zig`（新） | 现状测试保留 |
-| 状态文案 | `src/i18n.zig` | 现有「两种语言都有全部字符串」测试扩展 |
+| 命令栏与它的菜单 | `src/shell.zig` | `s.sort_at` / `s.density_at` / `s.filter_at` / `s.more_at` / `s.search_clear_at` |
+| 状态条 | `src/statusbar.zig` | 断言文本与相对位置（`t.findText`） |
+| 导航栏 | `src/rail.zig` | `s.rail_w` / `s.rail_toggle_at` |
+| 网格、空态、骨架墙、框选 | `src/gallery.zig` | `s.first_picture` / `s.grid_x` / `s.grid_y` / `s.grid_offset` |
+| 图块与角标 | `src/tile.zig` | `s.menu_at`，以及 `t.hasText` 的文本节点 |
+| 选择 / 游标 / 框选 | `src/select.zig` | `s.select` 直接读 |
+| 大图、顶部条、信息卡片 | `src/large.zig` | `s.large` / `s.large_close_at` |
+| 胶片条 | `src/filmstrip.zig` | `s.filmstrip_at`（每帧写出的格子矩形） |
+| 菜单 / 重命名 / 确认框 | `src/menu.zig` / `src/dialogs.zig` | 断言文本与 `t.clickText` |
+| toast | `src/app.zig`（`State.toaster`） | `t.hasText("已移到回收站")` |
+| 设置 | `src/settings.zig` | 断言分段控件与 `config` 往返 |
+| 状态文案 | `src/i18n.zig` | 「两种语言都有全部字符串」测试 |
 
-所有测试钩子都是「每帧写出的矩形」，与现状 `s.first_picture` 同一手法：
-测试点击真实坐标，而不是在文本里猜位置。
+所有测试钩子都是「每帧写出的矩形」，与 `s.first_picture` 同一手法：测试点击真实坐标，
+而不是在文本里猜位置。

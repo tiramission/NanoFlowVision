@@ -86,7 +86,6 @@ test "hovering a picture raises the chip, and it opens the menu" {
     t.moveTo(where.x + where.w - 10, where.y + 10);
     t.frame();
     try std.testing.expect(t.hasText("⋯"));
-    t.screenshot("docs/chip-hover.png") catch {};
     try t.clickText("⋯");
     t.frame();
     try std.testing.expect(state.menu_for != null);
@@ -138,7 +137,6 @@ test "the tree unfolds at a folder's chevron, without opening it" {
     const ralb2 = t.findText("album").?;
     const r2024b = t.findText("2024").?;
     try std.testing.expect(r2024b.y > ralb2.y + ralb2.h);
-    t.screenshot("docs/tree-expanded.png") catch {};
 }
 
 test "the large view says where it stands, and the strip walks it" {

@@ -76,14 +76,24 @@ src/large.zig    the picture large, with its exif in the corner
 src/menu.zig     the picture's menu: open, reveal, copy, rename, the bin
 src/ops.zig      the file operations: the bin and the clipboard where nanoui is silent
 src/config.zig   the settings: how the window sat, dark, subfolders
-src/theme.zig    the look: two themes, amber on paper and on charcoal (docs/design.md)
+src/theme.zig    the look: two neutral rooms (paper and graphite), and the contrast test
+src/select.zig   the choice: a set of paths, a cursor, a marquee
+src/settings.zig the settings sheet, over kit's scrim
+src/statusbar.zig what is here, how heavy, where the cursor stands, the watch
+src/dialogs.zig  the folder that cannot be read, and the bin's second thought
+src/shots.zig    compressed PNGs for the documented snapshots
 src/i18n.zig     the interface's words, in English and Chinese
 src/watch.zig    the folder watched, so the disk's changes arrive by themselves
 src/masonry.zig  where each picture sits: columns of pictures
 src/thumbs.zig   the cache and the workers that fill it
 src/win.zig      Windows glue: the window's icon, whether it is maximized
 src/tests.zig    the view, drawn offscreen, and the pictures it decodes
-src/tests_meta.zig  the tests for what goes into the picture files
+src/tests_view.zig   the tree, the large view, the folders walked
+src/tests_select.zig the choice, the keyboard, the bin
+src/tests_shell.zig  the command bar, the status bar, the rail
+src/tests_details.zig the search, the cursor's place, the empty folder, the rail edge
+src/tests_meta.zig   the tests for what goes into the picture files
+src/tests_shots.zig  the documented snapshots, into docs/redesign/shots/
 ```
 
 ## How the gallery works

@@ -13,6 +13,7 @@ const config = @import("config.zig");
 const i18n = @import("i18n.zig");
 const ops = @import("ops.zig");
 const thumbs = @import("thumbs.zig");
+const shots = @import("shots.zig");
 const tests_mod = @import("tests.zig");
 
 /// The bytes of a jpeg that carries the fixture's exif: a real
@@ -178,7 +179,7 @@ test "snapshot: the exif panel with stars and tags" {
         std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake) catch {};
     }
     t.frame();
-    t.screenshot("docs/app-rating.png") catch {};
+    try shots.shot(&t, "docs/redesign/shots/lightbox-dark.png");
 }
 
 test "snapshot: chinese glyphs render" {
@@ -196,7 +197,6 @@ test "snapshot: chinese glyphs render" {
     // same shaping as everything else.
     state.search.set("搜索图片 深色 设置");
     t.frame();
-    t.screenshot("docs/cjk-probe.png") catch {};
     try std.testing.expect(t.containsText("搜索图片 深色 设置"));
 }
 
@@ -263,7 +263,7 @@ test "snapshot: the interface in chinese" {
     try tests_mod.waitForLayout(&t, state);
     try tests_mod.waitForThumbs(&t, state);
     t.settle(0.1);
-    t.screenshot("docs/app-zh.png") catch {};
+    try shots.shot(&t, "docs/redesign/shots/grid-zh.png");
     try std.testing.expect(t.containsText("张图片"));
 }
 
@@ -280,7 +280,6 @@ test "snapshot: the settings panel open" {
     try tests_mod.waitForLayout(&t, state);
     try t.clickText("设置");
     t.settle(0.6);
-    t.screenshot("docs/settings-open.png") catch {};
 }
 
 test "snapshot: the picture menu and the dark settings" {
@@ -305,12 +304,11 @@ test "snapshot: the picture menu and the dark settings" {
     t.frame();
     try t.clickText("⋯");
     t.settle(0.5);
-    t.screenshot("docs/menu-zh.png") catch {};
+    try shots.shot(&t, "docs/redesign/shots/menu-dark.png");
     state.menu_for = null;
     t.frame();
 
     // The dark settings card.
     try t.clickText("设置");
     t.settle(0.6);
-    t.screenshot("docs/settings-dark.png") catch {};
 }

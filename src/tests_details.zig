@@ -129,3 +129,50 @@ test "the rail names the folder it is rooted at, and its edge is a handle" {
     t.settle(0.2);
     try std.testing.expectEqual(@as(f32, 240), state.rail_w);
 }
+
+test "space is the quick look, both ways" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 4);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600 });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+
+    // On the wall, Space opens the cursor's picture. The walk starts
+    // on the first tile.
+    t.key(.down);
+    t.settle(0.1);
+    t.typeText(" ");
+    t.settle(0.2);
+    try std.testing.expect(state.large != null);
+    try std.testing.expectEqual(@as(?usize, 0), state.select.cursor);
+
+    // And in the large view, Space is the way back, same as Escape.
+    t.typeText(" ");
+    t.settle(0.2);
+    try std.testing.expect(state.large == null);
+    try std.testing.expectEqual(@as(?usize, 0), state.select.cursor);
+}
+
+test "Ctrl+O asks the system for a folder" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 1);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600 });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+
+    // The dialog itself opens outside the frame (AGENTS.md); the key's
+    // job is to ask for it.
+    _ = t.shortcut(.{ .key = 'o', .ctrl = true });
+    t.frame();
+    try std.testing.expect(state.dialog_pending);
+}

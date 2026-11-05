@@ -552,6 +552,7 @@ pub const State = struct {
             s.focus_search = true;
             c.changed = true;
         }
+        if (c.shortcut(.{ .key = 'o', .ctrl = true })) shell.askForFolder(s);
         if (c.input.key == .f5) s.relist_pending = true;
         if (c.shortcut(.{ .key = '/', .ctrl = true })) {
             s.keys_open = true;

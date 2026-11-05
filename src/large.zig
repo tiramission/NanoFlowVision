@@ -215,6 +215,16 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             }
         }
     }
+    // Space is the way back to the wall, as it was the way in -- whatever
+    // kind of file is on the table.
+    if (!s.tag_editing) {
+        for (c.input.chars) |ch| {
+            if (ch == ' ') {
+                close(s);
+                return;
+            }
+        }
+    }
 
     const known = s.shared.get(key) orelse return;
     if (known.thumb) |pixels| {
@@ -346,12 +356,21 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             if (chip.clicked()) toggleZoom(s);
         }
     } else {
-        // The worker is still on it: another frame as soon as it lands.
-        c.animationFrame();
-        const wait = ui.div(c).row().itemsCenter().gap(8).px(4).py(4);
-        defer wait.end();
-        ui.icon(c, "circle.dotted", .{ .size = 14, .color = th.muted });
-        ui.text(c, i18n.strings(s.lang).loading, .{ .size = 14, .color = th.muted });
+        // The worker is still on it -- or it tried and cannot read the
+        // file. Those are different answers, and the room says which.
+        if (known.failed) {
+            const note = ui.div(c).absolute().offset(0, 0).sizeFull().column().center().gap(8);
+            defer note.end();
+            ui.icon(c, "exclamationmark.triangle", .{ .size = 28, .color = th.muted });
+            ui.text(c, tr.decode_failed, .{ .size = 14, .color = th.muted });
+            ui.text(c, pic.path, .{ .size = 12, .mono = true, .color = th.muted });
+        } else {
+            c.animationFrame();
+            const wait = ui.div(c).row().itemsCenter().gap(8).px(4).py(4);
+            defer wait.end();
+            ui.icon(c, "circle.dotted", .{ .size = 14, .color = th.muted });
+            ui.text(c, tr.loading, .{ .size = 14, .color = th.muted });
+        }
     }
 
     // The bar along the top: where this one stands in the gallery, its

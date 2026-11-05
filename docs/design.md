@@ -1,8 +1,7 @@
 # NanoFlowVision 设计系统
 
-界面的设计事实在 [redesign/](redesign/README.md) —— 诊断、UX、视觉、组件与实施
-五份文档，加一份[打磨记录](redesign/06-polish.md)与 `mockup.html` 的可点击草稿。
-它已经全部落地：
+界面的事实与规格在 [redesign/](redesign/README.md)：交互、视觉、组件三份规格，
+加一份[历史记录](redesign/06-history.md)与[屏幕快照](redesign/shots/)。它已经全部落地：
 
 - **视觉**：中性无色（chrome 不上色），选中用反相强调，亮暗两房。
   代码里的事实是 `src/theme.zig` 的 `Colors` 与对比度测试；照片上的纱底用
