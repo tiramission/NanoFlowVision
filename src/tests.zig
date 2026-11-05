@@ -490,7 +490,7 @@ test "scrolling moves the gallery, and the layout stays where it was" {
 }
 
 // T24: the names the views draw are names the icon set has. nanoui does
-// not export its icon table yet (02 §11's gap #1), so the set stands
+// not export its icon table yet (01 §11's gap #1), so the set stands
 // here, copied from the pinned nanoui's icons.zig -- a test fails the
 // day a view asks for a glyph the set cannot draw, or the day the
 // dependency moves under us.

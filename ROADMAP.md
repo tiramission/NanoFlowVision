@@ -1,7 +1,7 @@
 # ROADMAP
 
 界面的规格见 [docs/design.md](docs/design.md)；这里只记**还没做的事**与**不能越过的边界**。
-已完成的事看 `git log`（每个阶段一个提交）与 [docs/redesign/06-history.md](docs/redesign/06-history.md)。
+已完成的事看 `git log`（每个阶段一个提交）与 [docs/redesign/04-history.md](docs/redesign/04-history.md)。
 
 ## 现状（2026-10-23 实测，Windows / ReleaseFast / 1280×800）
 

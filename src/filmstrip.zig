@@ -27,7 +27,7 @@ const cell_gap: f32 = 4;
 
 /// Draws the strip for the picture at `current` in the shown list, and
 /// hands back the index the reader clicked, if any.
-pub fn view(s: *app.State, c: *ui.Context, current: usize) ?usize {
+pub fn view(s: *app.State, c: *ui.Context, current: usize, alpha: f32, live: bool) ?usize {
     const k = theme.colors(s.dark);
     const n = s.shown.len;
     if (n == 0) return null;
@@ -42,6 +42,7 @@ pub fn view(s: *app.State, c: *ui.Context, current: usize) ?usize {
     // The strip, over the foot of the picture: dark enough to read on
     // any photograph, the way the panels of the large view are.
     const strip = ui.div(c).absolute().offset(0, c.size.h - strip_h).w(c.size.w).h(strip_h)
+        .opacity(alpha)
         .bg(k.scrim);
     defer strip.end();
 
@@ -98,7 +99,7 @@ pub fn view(s: *app.State, c: *ui.Context, current: usize) ?usize {
                     .borderW(if (on) 2 else 1);
                 ring.end();
             }
-            if (it.clicked) clicked = i;
+            if (it.clicked and live) clicked = i;
             cell.end();
         }
         // Where each cell stands, for the tests that click them.

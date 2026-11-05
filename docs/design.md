@@ -1,7 +1,7 @@
 # NanoFlowVision 设计系统
 
 界面的事实与规格在 [redesign/](redesign/README.md)：交互、视觉、组件三份规格，
-加一份[历史记录](redesign/06-history.md)与[屏幕快照](redesign/shots/)。它已经全部落地：
+加一份[历史记录](redesign/04-history.md)与[屏幕快照](redesign/shots/)。它已经全部落地：
 
 - **视觉**：中性无色（chrome 不上色），选中用反相强调，亮暗两房。
   代码里的事实是 `src/theme.zig` 的 `Colors` 与对比度测试；照片上的纱底用
@@ -14,7 +14,7 @@
   操作的 toast 回声、空目录的出口、测量中的骨架墙、大图的顶部条（序号、星级、
   信息、关闭、全屏）+ 胶片条 + 卡片式信息块 + 适应 ⇄ 1:1；全屏时 chrome 静默收起。
 - **键盘**：全图见 Ctrl+/（`src/i18n.zig` 的 `keyGroups`，设置面板页脚同入口），或
-  [redesign/02-ux.md](redesign/02-ux.md) §5；⌘F 聚焦搜索，F11 全屏看图（见 02 §12）。
+  [redesign/01-ux.md](redesign/01-ux.md) §5；⌘F 聚焦搜索，F11 全屏看图（见 01 §12）。
 
 本文曾描述的琥珀设计（nanomon 移植的暖炭/奶油/琥珀）已被上述方案整体取代，
 旧文档的规格不再与代码对应，故不再保留；历史上的样子见 `git log`。

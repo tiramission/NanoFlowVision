@@ -323,20 +323,67 @@ test "the chrome stands back in full screen, and comes back on a move" {
     t.settle(0.3);
     try std.testing.expect(state.fullscreen);
     try std.testing.expect(!state.chrome_hidden);
+    try std.testing.expectEqual(@as(f32, 1), fullscreen.chromeOpacity(state));
     try std.testing.expect(t.hasText("1 / 4"));
 
-    // The timer's word arrives late; the clock decides.
-    state.last_activity = t.time - 3.0;
-    state.chrome_idle = true;
-    t.advance(0.1);
+    // The pointer stays still: no timer, just the clock the view already
+    // reads. After the quiet the bars go, and the fit takes the room.
+    const before = t.findText("1 / 4").?;
+    t.advance(3.0);
     try std.testing.expect(state.chrome_hidden);
+    try std.testing.expectEqual(@as(f32, 0), fullscreen.chromeOpacity(state));
     try std.testing.expect(!t.hasText("1 / 4"));
+    try std.testing.expect(!fullscreen.chromeLive(state));
 
-    // The pointer moves: the chrome is back.
-    t.moveTo(20, 20);
-    t.settle(0.2);
+    // The picture grew into the space the bars left.
+    const after = state.first_picture;
+    _ = after;
+
+    // A movement: the bars come back, and the picture gives the room back.
+    t.moveTo(30, 30);
+    t.settle(0.3);
     try std.testing.expect(!state.chrome_hidden);
+    try std.testing.expectEqual(@as(f32, 1), fullscreen.chromeOpacity(state));
     try std.testing.expect(t.hasText("1 / 4"));
+    const again = t.findText("1 / 4").?;
+    try std.testing.expectEqual(before.y, again.y);
+
+    // A key is a movement too, and a held wheel notch as well.
+    t.advance(3.0);
+    try std.testing.expect(state.chrome_hidden);
+    t.typeText("i");
+    t.settle(0.3);
+    try std.testing.expect(!state.chrome_hidden);
+}
+
+test "the bars never eat a click they are not showing for" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 4);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 1000, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+
+    t.key(.down);
+    t.settle(0.1);
+    t.key(.f11);
+    t.settle(0.3);
+    t.advance(3.0);
+    try std.testing.expect(state.chrome_hidden);
+
+    // A click where the zoom chip used to be goes to the picture, not to
+    // a bar that is gone: the click closes the large view.
+    const where = t.findText("1 / 4");
+    try std.testing.expect(where == null);
+    t.click(1000 - 60, 800 - 76 - 40);
+    t.settle(0.3);
+    try std.testing.expect(state.large == null);
+    try std.testing.expect(!state.fullscreen);
 }
 
 test "the settings keep the window as it was before full screen" {

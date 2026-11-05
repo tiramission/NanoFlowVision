@@ -147,8 +147,11 @@ pub fn view(s: *app.State, c: *ui.Context) void {
     const k = theme.colors(s.dark);
     const pic = s.large orelse return;
     // In full screen the chrome stands back after a moment of quiet;
-    // any movement brings it back.
+    // any movement brings it back. One value, read by the bars below.
     fullscreen.noteInput(s, c);
+    const chrome_live = fullscreen.chromeLive(s);
+    const chrome_drawn = fullscreen.chromeDrawn(s);
+    const chrome_alpha = fullscreen.chromeOpacity(s);
     // The wheel zooms here: nothing in this view scrolls.
     c.wants_wheel = true;
     if (c.shortcut(.{ .key = ui.Shortcut.escape })) {
@@ -241,10 +244,11 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         // the small end and stops at eight times, and it anchors where the
         // pointer is, so the point under it stays under it.
         //
-        // The room leaves the bars alone: the fit is the space between the
-        // top bar and the strip, so a picture is never shown under them.
-        const top_room: f32 = if (s.chrome_hidden) 16 else 44 + 16;
-        const bottom_room: f32 = if (s.chrome_hidden) 16 else filmstrip.strip_h + 16;
+        // The room the bars take, followed frame by frame as they fade: the
+        // fit grows with them instead of jumping when they are gone, and a
+        // picture is never shown under a bar that still stands.
+        const top_room: f32 = fullscreen.topRoom(s, 44, 16);
+        const bottom_room: f32 = fullscreen.topRoom(s, filmstrip.strip_h, 16);
         const room_w = c.size.w - 48;
         const room_h = c.size.h - top_room - bottom_room;
         const img_w: f32 = @floatFromInt(pixels.w);
@@ -258,7 +262,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         // arrives. A notch is a gentle step, not a leap. The wheel back
         // to the fit hands the size back to the window. Over the strip
         // at the foot, the wheel steps along the gallery instead.
-        if (wheel != 0 and c.input.mouse.y >= c.size.h - filmstrip.strip_h) {
+        if (wheel != 0 and chrome_live and c.input.mouse.y >= c.size.h - filmstrip.strip_h) {
             neighbor(s, if (wheel < 0) 1 else -1);
             c.changed = true;
         } else if (wheel != 0) {
@@ -344,16 +348,16 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             _ = ui.texture(c, .{ .width = .fill, .height = .fill }, texture, .{ 0, 0, 1, 1 }, 1);
         }
 
-        // The zoom, at the foot of the window, just above the strip: at
-        // the fit it says so; zoomed, it says how much. A click on it,
-        // like the wheel's double click and `z`, makes fit and 1:1
-        // change places. Hidden with the rest of the chrome.
-        if (!s.chrome_hidden) {
+        // The zoom, at the foot of the window just above the strip: at the
+        // fit it says so, zoomed it says how much. It goes with the chrome,
+        // and stops taking clicks before it has faded out completely.
+        if (chrome_drawn) {
             const chip = ui.div(c).absolute()
-                .offset(c.size.w - 122, c.size.h - filmstrip.strip_h - 48)
+                .offset(c.size.w - 122, c.size.h - bottom_room - 32)
                 .px(12)
                 .py(6)
                 .rounded(8)
+                .opacity(chrome_alpha)
                 .bg(k.scrim).control();
             defer chip.end();
             if (s.zoom_target != null) {
@@ -386,9 +390,10 @@ pub fn view(s: *app.State, c: *ui.Context) void {
     // keys -- and the two ways out of the way: the facts folded or shown,
     // and the view closed. It rides on the veil, so it reads on any
     // photograph under it.
-    if (!s.chrome_hidden) {
+    if (chrome_drawn) {
         const bar = ui.div(c).absolute().offset(0, 0).w(c.size.w).h(44)
             .row().itemsCenter().gap(12).px(16)
+            .opacity(chrome_alpha)
             .bg(k.scrim);
         defer bar.end();
         ui.textf(c, .{ .size = 13, .mono = true, .color = ui.Color.white.alpha(0.7) }, "{d} / {d}", .{ at + 1, s.shown.len });
@@ -420,8 +425,8 @@ pub fn view(s: *app.State, c: *ui.Context) void {
     // The strip: the gallery as it stands around this one, a click away,
     // with the wheel over it stepping along instead of zooming.
     s.filmstrip_at.clearRetainingCapacity();
-    if (!s.chrome_hidden) {
-        if (filmstrip.view(s, c, at)) |i| show(s, s.shown[i]);
+    if (chrome_drawn) {
+        if (filmstrip.view(s, c, at, chrome_alpha, chrome_live)) |i| show(s, s.shown[i]);
     }
     // What the picture says about itself, in its panel card at the
     // corner: its camera, when it was taken, how, and what it means to

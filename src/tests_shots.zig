@@ -9,6 +9,7 @@ const nanoui = @import("nanoui");
 const ui = nanoui.ui;
 const app = @import("app.zig");
 const exif = @import("exif.zig");
+const fullscreen = @import("fullscreen.zig");
 const thumbs = @import("thumbs.zig");
 const xmp = @import("xmp.zig");
 const shots = @import("shots.zig");
@@ -403,14 +404,14 @@ test "snapshot: full screen, the chrome at rest" {
     const where = state.first_picture orelse return error.NoPictureOnScreen;
     t.doubleClick(where.x + where.w / 2, where.y + where.h / 2);
     t.settle(0.3);
-    // The picture has the whole screen: the bars have stood back.
-    state.fullscreen = true;
-    state.chrome_hidden = true;
-    state.idle_mouse_x = t.ctx.input.mouse.x;
-    state.idle_mouse_y = t.ctx.input.mouse.y;
-    state.last_activity = t.time - 3.0;
+    // The picture has the whole screen: the bars have stood back after
+    // the quiet, the way the app does it.
+    t.key(.f11);
     t.settle(0.2);
+    t.advance(3.0);
+    t.settle(0.4);
     try std.testing.expect(state.chrome_hidden);
+    try std.testing.expectEqual(@as(f32, 0), fullscreen.chromeOpacity(state));
     try shots.shot(&t, "docs/redesign/shots/fullscreen.png");
 }
 
@@ -450,11 +451,11 @@ test "snapshot: full screen, dark, with the facts" {
         }
         std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake) catch {};
     }
-    state.fullscreen = true;
-    state.chrome_hidden = true;
-    state.idle_mouse_x = t.ctx.input.mouse.x;
-    state.idle_mouse_y = t.ctx.input.mouse.y;
-    state.last_activity = t.time - 3.0;
+    t.key(.f11);
     t.settle(0.2);
+    t.advance(3.0);
+    t.settle(0.4);
+    try std.testing.expect(state.chrome_hidden);
+    try std.testing.expectEqual(@as(f32, 0), fullscreen.chromeOpacity(state));
     try shots.shot(&t, "docs/redesign/shots/fullscreen-dark.png");
 }

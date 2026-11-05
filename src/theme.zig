@@ -2,7 +2,7 @@
 //! colour of their own -- so the photographs are the only thing in the
 //! window that has any. Hover brightens, selection inverts, the keyboard
 //! cursor strokes an edge: state is said with light and shape, never with
-//! a hue. docs/redesign/03-visual.md is the spec; this file holds its
+//! a hue. docs/redesign/02-visual.md is the spec; this file holds its
 //! values, and the test at the foot keeps them over the contrast lines so
 //! a later tweak cannot quietly break them.
 

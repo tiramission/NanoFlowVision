@@ -30,7 +30,7 @@ const nfd = @import("nfd");
 const win = @import("win.zig");
 
 /// How much room between and around the pictures: 6 between neighbours,
-/// 16 around (docs/redesign/03-visual.md).
+/// 16 around (docs/redesign/02-visual.md).
 const gap: f32 = 6;
 const padding: f32 = 16;
 /// The ceiling the columns never pass; the density sets the target.
@@ -203,14 +203,15 @@ pub const State = struct {
     frame_before: ?fullscreen.WindowRect = null,
     maximized_before: bool = false,
     /// The chrome has stood back in the full screen: the top bar, the
-    /// strip and the zoom chip are hidden, and the picture has the room.
+    /// strip and the zoom chip are on their way out, and the picture
+    /// takes the room.
     chrome_hidden: bool = false,
-    /// A timer said the idle moment came; the view checks the clock
-    /// itself, so an early timer cannot hide the chrome.
-    chrome_idle: bool = false,
-    /// One quiet timer is enough; a second would only fire early.
-    chrome_timer_pending: bool = false,
-    last_activity: f64 = 0,
+    /// The bars' opacity, eased between 1 and 0 by the same frames that
+    /// the fit reads.
+    chrome_fade: f32 = 1,
+    /// When the chrome last had to be up (an entry, a movement, a key):
+    /// the quiet is counted from here.
+    chrome_shown_at: f64 = 0,
     idle_mouse_x: f32 = 0,
     idle_mouse_y: f32 = 0,
     /// Whether the large view's panel of facts is open.
