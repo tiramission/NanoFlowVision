@@ -204,7 +204,7 @@ pub fn reroot(s: *app.State, path: []const u8) void {
     tree.children = &.{};
     tree.pictures = &.{};
     tree.loaded = false;
-    tree.expanded = false;
+    tree.expanded = true;
     tree.depth = 0;
     const new_path = s.gpa.dupe(u8, path) catch return;
     const new_name = s.gpa.dupe(u8, model.nameOf(path)) catch {
@@ -242,6 +242,7 @@ fn controls(s: *app.State, c: *ui.Context) void {
     if (!s.rail_visible) {
         const back = ui.button(c, "", .{ .variant = .ghost, .size = 13, .icon = "sidebar.left" });
         if (back.rect) |r| s.rail_toggle_at = r;
+        if (back.hovered) kit.tooltip(c, back, tr.sidebar_label, .{});
         if (back.clicked) {
             s.rail_visible = true;
             c.changed = true;
@@ -270,13 +271,32 @@ fn controls(s: *app.State, c: *ui.Context) void {
     }
 
     // The search: what matches stays, the rest waits its turn. It keeps
-    // its own width, so the breadcrumb is never squeezed for it.
+    // its own width, so the breadcrumb is never squeezed for it. ⌘F puts
+    // the caret here; the xmark gives the wall back in one click.
     {
         const frame = ui.div(c).row().h(30).itemsCenter().gap(7).px(10).w(220).rounded(8).bg(k.well).border(k.border);
         defer frame.end();
         ui.icon(c, "magnifyingglass", .{ .size = 12, .color = k.tertiary });
+        c.next_key = "search";
+        if (s.focus_search) {
+            c.focus = c.peekId(null);
+            s.focus_search = false;
+            c.changed = true;
+        }
         const field = ui.textField(c, &s.search, .{ .placeholder = tr.search_placeholder, .width = .fill, .size = 13, .bare = true });
         if (field.changed) s.orderChanged();
+        if (s.search.text().len > 0) {
+            const clear = ui.div(c).row().w(18).h(18).center().rounded(4).control();
+            const it = clear.interaction();
+            defer clear.end();
+            if (it.rect) |r| s.search_clear_at = r;
+            ui.icon(c, "xmark", .{ .size = 9, .color = k.secondary });
+            if (it.clicked) {
+                s.search.clear();
+                s.orderChanged();
+                c.changed = true;
+            }
+        } else s.search_clear_at = .{};
     }
 
     // The star filter: what the wall keeps, said as a chip when it is
@@ -289,6 +309,7 @@ fn controls(s: *app.State, c: *ui.Context) void {
         .{ .variant = .ghost, .size = 13, .icon = if (s.filter_stars > 0) "" else "star.fill" },
     );
     if (flt.rect) |r| s.filter_at = r;
+    if (flt.hovered) kit.tooltip(c, flt, tr.filter_label, .{});
     if (flt.clicked) {
         s.filter_open = true;
         c.changed = true;
@@ -317,6 +338,7 @@ fn controls(s: *app.State, c: *ui.Context) void {
     // buttons whose menus open under them and say the choice with a tick.
     const sort = ui.button(c, "", .{ .variant = .ghost, .size = 13, .icon = "chevron.up.chevron.down" });
     if (sort.rect) |r| s.sort_at = r;
+    if (sort.hovered) kit.tooltip(c, sort, c.print("{s} · {s}", .{ tr.sort_by, sortWord(tr, s.sort) }), .{});
     if (sort.clicked) {
         s.sort_open = true;
         c.changed = true;
@@ -348,6 +370,7 @@ fn controls(s: *app.State, c: *ui.Context) void {
     // The button's place, written out every frame: the menu hangs from
     // it, and a test finds it there (as the grid's first picture is).
     if (dens.rect) |r| s.density_at = r;
+    if (dens.hovered) kit.tooltip(c, dens, tr.density, .{});
     if (dens.clicked) {
         s.density_open = true;
         c.changed = true;
@@ -378,6 +401,7 @@ fn controls(s: *app.State, c: *ui.Context) void {
     // where the eye goes for what is not on the bar.
     const more = ui.button(c, "", .{ .variant = .ghost, .size = 13, .icon = "ellipsis.circle" });
     if (more.rect) |r| s.more_at = r;
+    if (more.hovered) kit.tooltip(c, more, tr.more_label, .{});
     if (more.clicked) {
         s.more_open = true;
         c.changed = true;
@@ -418,6 +442,17 @@ fn controls(s: *app.State, c: *ui.Context) void {
             else => {},
         }
     }
+}
+
+/// The word the sort tooltip says for a key.
+fn sortWord(tr: i18n.Strings, key: app.SortKey) []const u8 {
+    return switch (key) {
+        .name => tr.sort_name,
+        .time => tr.sort_date,
+        .size => tr.sort_size,
+        .pixels => tr.sort_pixels,
+        .stars => tr.sort_stars,
+    };
 }
 
 /// The way here, as crumbs: the folders from the root down, the last one

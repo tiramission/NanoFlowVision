@@ -46,7 +46,7 @@ test "stars go into the picture file, and the gallery sorts by them" {
     const state = try app.State.create(gpa, std.testing.io, dir_path);
     defer state.deinit();
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600 });
+    try tests_mod.initTester(&t, gpa, state, 900, 600);
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
 
@@ -89,7 +89,7 @@ test "the number keys rate a picture, and t tags it, into the file" {
     const state = try app.State.create(gpa, std.testing.io, path);
     defer state.deinit();
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600 });
+    try tests_mod.initTester(&t, gpa, state, 900, 600);
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
 
@@ -157,8 +157,9 @@ test "snapshot: the exif panel with stars and tags" {
 
     const state = try app.State.create(gpa, std.testing.io, path);
     defer state.deinit();
+    state.dark = true;
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 1280, .height = 800, .theme = theme.forDark(true) });
+    try tests_mod.initTester(&t, gpa, state, 1280, 800);
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
     t.frame();
@@ -187,7 +188,7 @@ test "snapshot: chinese glyphs render" {
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600 });
+    try tests_mod.initTester(&t, gpa, state, 900, 600);
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
 
@@ -216,7 +217,7 @@ test "the settings panel switches the language, and it persists" {
     defer gpa.free(owned_dir);
     state.settings_dir = owned_dir;
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600 });
+    try tests_mod.initTester(&t, gpa, state, 900, 600);
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
 
@@ -257,7 +258,7 @@ test "snapshot: the interface in chinese" {
     defer state.deinit();
     state.lang = .zh;
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600 });
+    try tests_mod.initTester(&t, gpa, state, 900, 600);
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
     try tests_mod.waitForThumbs(&t, state);
@@ -274,11 +275,11 @@ test "snapshot: the settings panel open" {
     defer state.deinit();
     state.lang = .zh;
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600 });
+    try tests_mod.initTester(&t, gpa, state, 900, 600);
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
     try t.clickText("设置");
-    t.settle(0.1);
+    t.settle(0.6);
     t.screenshot("docs/settings-open.png") catch {};
 }
 
@@ -291,7 +292,7 @@ test "snapshot: the picture menu and the dark settings" {
     state.lang = .zh;
     state.dark = true;
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 900, .height = 600, .theme = theme.forDark(true) });
+    try tests_mod.initTester(&t, gpa, state, 900, 600);
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
     try tests_mod.waitForThumbs(&t, state);
@@ -303,13 +304,13 @@ test "snapshot: the picture menu and the dark settings" {
     t.moveTo(where.x + where.w / 2, where.y + where.h / 2);
     t.frame();
     try t.clickText("⋯");
-    t.settle(0.1);
+    t.settle(0.5);
     t.screenshot("docs/menu-zh.png") catch {};
     state.menu_for = null;
     t.frame();
 
     // The dark settings card.
     try t.clickText("设置");
-    t.settle(0.1);
+    t.settle(0.6);
     t.screenshot("docs/settings-dark.png") catch {};
 }

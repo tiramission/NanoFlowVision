@@ -9,11 +9,21 @@ comptime {
     _ = @import("tests_view.zig");
     _ = @import("select.zig");
     _ = @import("tests_select.zig");
+    _ = @import("tests_details.zig");
     _ = @import("tests_shots.zig");
 }
 const decode = @import("decode.zig");
 const thumbs = @import("thumbs.zig");
 const exif = @import("exif.zig");
+const theme = @import("theme.zig");
+
+/// A tester that draws the app in the room it is actually in. A window
+/// hands its theme to the surface; a tester has to be told, or the kit's
+/// menus, sheets and dialogs would be dressed in nanoui's own palette
+/// while everything the views paint is dressed in ours.
+pub fn initTester(t: *ui.Tester, gpa: std.mem.Allocator, state: *app.State, w: f32, h: f32) !void {
+    try t.init(gpa, .init(state, app.State.view), .{ .width = w, .height = h, .theme = theme.forDark(state.dark) });
+}
 
 /// A folder with a red square in it, and where it is.
 const Sample = struct {
@@ -189,7 +199,7 @@ test "the gallery shows a folder's pictures, decoded in the background" {
 
     // The tree, the toolbar and the count of pictures.
     try std.testing.expect(t.hasText("NanoFlowVision"));
-    try std.testing.expect(t.hasText("1 pictures"));
+    try std.testing.expect(t.hasText("1 picture"));
 
     // The workers decode the picture in the background.
     const picture_path = state.current.?.pictures[0].path;
@@ -247,7 +257,7 @@ test "the tree opens a folder when its row is clicked" {
 
     // The album is in the tree, and the root's picture is counted.
     try std.testing.expect(t.hasText("album"));
-    try std.testing.expect(t.hasText("1 pictures"));
+    try std.testing.expect(t.hasText("1 picture"));
 
     try t.clickText("album");
     t.settle(0.2);

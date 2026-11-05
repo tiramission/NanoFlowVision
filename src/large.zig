@@ -7,6 +7,7 @@
 const std = @import("std");
 const nanoui = @import("nanoui");
 const ui = nanoui.ui;
+const kit = nanoui.kit;
 
 const app = @import("app.zig");
 const exif = @import("exif.zig");
@@ -143,6 +144,7 @@ fn toggleZoom(s: *app.State) void {
 /// The picture, large, over a dark room.
 pub fn view(s: *app.State, c: *ui.Context) void {
     const th = c.theme;
+    const k = theme.colors(s.dark);
     const pic = s.large orelse return;
     // The wheel zooms here: nothing in this view scrolls.
     c.wants_wheel = true;
@@ -220,8 +222,13 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         // takes the wheel where nothing scrolls. Zooming keeps to the fit at
         // the small end and stops at eight times, and it anchors where the
         // pointer is, so the point under it stays under it.
+        //
+        // The room leaves the bars alone: the fit is the space between the
+        // top bar and the strip, so a picture is never shown under them.
+        const top_room: f32 = 44 + 16;
+        const bottom_room: f32 = filmstrip.strip_h + 16;
         const room_w = c.size.w - 48;
-        const room_h = c.size.h - 48;
+        const room_h = c.size.h - top_room - bottom_room;
         const img_w: f32 = @floatFromInt(pixels.w);
         const img_h: f32 = @floatFromInt(pixels.h);
         const fit = @min(room_w / img_w, room_h / img_h);
@@ -244,7 +251,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             const bw = img_w * base;
             const bh = img_h * base;
             const mx = c.input.mouse.x - ((c.size.w - bw) / 2 + s.pan_tx);
-            const my = c.input.mouse.y - ((c.size.h - bh) / 2 + s.pan_ty);
+            const my = c.input.mouse.y - (top_room + (room_h - bh) / 2 + s.pan_ty);
             if (base > 0) {
                 s.pan_tx += mx - mx * next / base;
                 s.pan_ty += my - my * next / base;
@@ -284,7 +291,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         {
             const frame = ui.div(c)
                 .absolute()
-                .offset((c.size.w - w) / 2 + pan_x, (c.size.h - h) / 2 + pan_y)
+                .offset((c.size.w - w) / 2 + pan_x, top_room + (room_h - h) / 2 + pan_y)
                 .w(w)
                 .h(h)
                 .shadowMd();
@@ -329,7 +336,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
                 .px(12)
                 .py(6)
                 .rounded(8)
-                .bg(ui.Color.black.alpha(0.45)).control();
+                .bg(k.scrim).control();
             defer chip.end();
             if (s.zoom_target != null) {
                 ui.textf(c, .{ .size = 12, .mono = true, .color = ui.Color.white }, "{d:.0}%", .{zoom * 100});
@@ -348,24 +355,36 @@ pub fn view(s: *app.State, c: *ui.Context) void {
     }
 
     // The bar along the top: where this one stands in the gallery, its
-    // name, and its stars -- which take a click, where the panel's take
-    // the keys.
+    // name, its stars -- which take a click, where the panel's take the
+    // keys -- and the two ways out of the way: the facts folded or shown,
+    // and the view closed. It rides on the veil, so it reads on any
+    // photograph under it.
     {
         const bar = ui.div(c).absolute().offset(0, 0).w(c.size.w).h(44)
             .row().itemsCenter().gap(12).px(16)
-            .bg(ui.Color.black.alpha(0.45));
+            .bg(k.scrim);
         defer bar.end();
-        ui.textf(c, .{ .size = 13, .mono = true, .color = .white }, "{d} / {d}", .{ at + 1, s.shown.len });
+        ui.textf(c, .{ .size = 13, .mono = true, .color = ui.Color.white.alpha(0.7) }, "{d} / {d}", .{ at + 1, s.shown.len });
         ui.text(c, pic.name, .{ .size = 13, .color = .white });
         ui.spacer(c);
         if (editable(pic.name)) {
             var st: i8 = 1;
             while (st <= 5) : (st += 1) {
-                const star = ui.div(c).row().w(26).h(26).center().control();
+                const star = ui.div(c).row().w(26).h(26).center().rounded(6).control();
+                const s_it = star.interaction();
                 defer star.end();
-                ui.text(c, if (m.rating >= st) "★" else "☆", .{ .size = 15, .color = if (m.rating >= st) .white else ui.Color.white.alpha(0.4) });
-                if (star.clicked()) rate(s, pic, &m, st);
+                ui.text(c, if (m.rating >= st) "★" else "☆", .{ .size = 15, .color = if (m.rating >= st) k.grade else ui.Color.white.alpha(0.45) });
+                if (s_it.clicked) rate(s, pic, &m, st);
             }
+            ui.spacer(c);
+        }
+        const info = barButton(c, "info.circle", tr.info, s.info_open);
+        if (info.clicked) s.info_open = !s.info_open;
+        const shut = barButton(c, "xmark", tr.close_label, false);
+        if (shut.rect) |r| s.large_close_at = r;
+        if (shut.clicked) {
+            close(s);
+            return;
         }
     }
 
@@ -427,34 +446,39 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         var stars: [32]u8 = undefined;
         var sn: usize = 0;
         if (m.rating > 0) {
-            var k: i8 = 0;
-            while (k < 5) : (k += 1) {
-                const glyph = if (k < m.rating) "★" else "☆";
+            var st: i8 = 0;
+            while (st < 5) : (st += 1) {
+                const glyph = if (st < m.rating) "★" else "☆";
                 @memcpy(stars[sn..][0..3], glyph);
                 sn += 3;
             }
         }
 
-        // The panel rides on a scrim of its own, and its colours are its
-        // own: a photograph can be white, black, or anything between,
-        // and the words stay legible on all of them. Folded, it is one
-        // line -- the mark and the word -- and no more.
+        // The panel stands in the picture's corner, on a card of its own:
+        // a photograph can be white, black, or anything between, and the
+        // words stay legible on all of them. It is the one opaque thing
+        // allowed over a picture. Folded, it is one line -- the mark and
+        // the word -- and no more.
+        const corner = ui.div(c).absolute().offset(16, 0)
+            .w(320).h(c.size.h - filmstrip.strip_h - 12)
+            .column().itemsStart().justifyEnd();
+        defer corner.end();
         if (s.info_open) {
-            const panel = ui.div(c).absolute().offset(24, 24).w(300).p(12).gap(5).rounded(10)
-                .bg(ui.Color.black.alpha(0.45));
+            const panel = ui.div(c).w(300).p(12).gap(5).rounded(10)
+                .bg(k.card).border(k.border).shadowMd();
             defer panel.end();
             {
                 const head = ui.div(c).row().wFull().itemsCenter().gap(6).control();
                 defer head.end();
-                ui.icon(c, "info.circle", .{ .size = 12, .color = .white });
-                ui.text(c, tr.info, .{ .size = 12, .weight = .semibold, .color = .white });
+                ui.icon(c, "info.circle", .{ .size = 12, .color = k.secondary });
+                ui.text(c, tr.info, .{ .size = 12, .weight = .semibold, .color = k.text });
                 ui.spacer(c);
-                ui.icon(c, "chevron.up", .{ .size = 11, .color = ui.Color.white.alpha(0.6) });
+                ui.icon(c, "chevron.up", .{ .size = 11, .color = k.tertiary });
                 if (head.clicked()) s.info_open = false;
             }
-            if (n > 0) ui.text(c, c.print("{s}", .{line[0..n]}), .{ .size = 13, .weight = .semibold, .color = .white });
-            if (sn > 0) ui.text(c, c.print("{s}", .{stars[0..sn]}), .{ .size = 16, .color = .white });
-            if (f > 0) ui.text(c, c.print("{s}", .{facts[0..f]}), .{ .size = 13, .color = ui.Color.white.alpha(0.78) });
+            if (n > 0) ui.text(c, c.print("{s}", .{line[0..n]}), .{ .size = 13, .weight = .semibold, .color = k.text });
+            if (sn > 0) ui.text(c, c.print("{s}", .{stars[0..sn]}), .{ .size = 16, .color = k.grade });
+            if (f > 0) ui.text(c, c.print("{s}", .{facts[0..f]}), .{ .size = 12, .mono = true, .color = k.secondary });
             if (m.tags_n > 0 and editable(pic.name)) {
                 ui.row(c, .{ .gap = 6 });
                 defer c.end();
@@ -466,10 +490,10 @@ pub fn view(s: *app.State, c: *ui.Context) void {
                             .radius = 5,
                             .align_items = .center,
                             .control = true,
-                            .background = ui.Color.white.alpha(0.14),
-                        }, ui.Color.white.alpha(0.24));
+                            .background = k.control,
+                        }, k.line2);
                         defer c.end();
-                        ui.text(c, c.print("{s} ✕", .{m.tagOf(i)}), .{ .size = 12, .color = .white });
+                        ui.text(c, c.print("{s} ✕", .{m.tagOf(i)}), .{ .size = 12, .color = k.text });
                         if (it.clicked) {
                             removeTag(s, pic, &m, i);
                             continue;
@@ -491,18 +515,31 @@ pub fn view(s: *app.State, c: *ui.Context) void {
                     s.tag_editing = false;
                 }
             } else if (editable(pic.name)) {
-                ui.text(c, tr.keys_hint, .{ .size = 11, .color = ui.Color.white.alpha(0.55) });
+                ui.text(c, tr.keys_hint, .{ .size = 11, .color = k.tertiary });
             }
         } else {
-            const mark = ui.div(c).absolute().offset(24, 24)
+            const mark = ui.div(c)
                 .row().itemsCenter().gap(6).px(10).py(6).rounded(8)
-                .bg(ui.Color.black.alpha(0.45)).control();
+                .bg(k.card).border(k.border).shadowMd().control();
             defer mark.end();
-            ui.icon(c, "info.circle", .{ .size = 12, .color = .white });
-            ui.text(c, tr.info, .{ .size = 12, .color = .white });
+            ui.icon(c, "info.circle", .{ .size = 12, .color = k.secondary });
+            ui.text(c, tr.info, .{ .size = 12, .color = k.text });
             if (mark.clicked()) s.info_open = true;
         }
     }
+}
+
+/// A chip in the large view's top bar: an icon on the veil, its name
+/// said on hover.
+fn barButton(c: *ui.Context, icon: []const u8, label: []const u8, on: bool) ui.Interaction {
+    var chip = ui.div(c).row().w(28).h(28).center().rounded(7).control();
+    const it = chip.interaction();
+    if (on) chip = chip.bg(ui.Color.white.alpha(0.18));
+    chip = chip.hover(ui.Color.white.alpha(0.16));
+    defer chip.end();
+    ui.icon(c, icon, .{ .size = 14, .color = .white });
+    if (it.hovered) kit.tooltip(c, it, label, .{});
+    return it;
 }
 
 /// Appends formatted text to a line the info panel is building.

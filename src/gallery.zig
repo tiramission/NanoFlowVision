@@ -15,6 +15,7 @@ const masonry = @import("masonry.zig");
 const menu = @import("menu.zig");
 const model = @import("model.zig");
 const ops = @import("ops.zig");
+const shell = @import("shell.zig");
 const statusbar = @import("statusbar.zig");
 const theme = @import("theme.zig");
 const thumbs = @import("thumbs.zig");
@@ -62,11 +63,15 @@ fn viewGrid(s: *app.State, c: *ui.Context) void {
     }, null);
     defer c.end();
 
-    // The grid's own place and size, as the last frame laid it out.
+    // The grid's own place and size, as the last frame laid it out. The
+    // first frame has no rectangle yet: the shell's own geometry says
+    // where the column begins, so even that frame lays out a wall that
+    // fits instead of one that runs off the window.
     const rect = c.rects.get(id);
-    const view_w = if (rect) |r| r.w else c.size.w;
+    const column_x = if (s.rail_visible) s.rail_w else 0;
+    const view_w = if (rect) |r| r.w else @max(1, c.size.w - column_x);
     const view_h = if (rect) |r| r.h else c.size.h;
-    const grid_x = if (rect) |r| r.x else 0;
+    const grid_x = if (rect) |r| r.x else column_x;
     const grid_y = if (rect) |r| r.y else 0;
     var offset = c.scroll.get(id) orelse 0;
     s.grid_x = grid_x;
@@ -109,12 +114,17 @@ fn viewGrid(s: *app.State, c: *ui.Context) void {
     const measured = s.shared.measuredCount();
     if (measured < pictures.len) {
         // The workers are on the headers: another frame is wanted as
-        // soon as they answer, so the wait is drawn.
+        // soon as they answer, so the wait is drawn. The wall itself is
+        // sketched while the sizes arrive -- an empty page would read as
+        // "there is nothing here", which is not what is happening.
         c.animationFrame();
-        const wait = ui.div(c).row().itemsCenter().gap(8).px(4).py(4);
-        defer wait.end();
-        ui.icon(c, "circle.dotted", .{ .size = 14, .color = th.muted });
-        ui.text(c, i18n.measuring(c.alloc(), s.lang, measured, pictures.len), .{ .size = 13, .color = th.muted });
+        {
+            const wait = ui.div(c).row().itemsCenter().gap(8).px(4).py(4);
+            defer wait.end();
+            ui.icon(c, "circle.dotted", .{ .size = 14, .color = th.muted });
+            ui.text(c, i18n.measuring(c.alloc(), s.lang, measured, pictures.len), .{ .size = 13, .color = th.muted });
+        }
+        skeletonWall(s, c, view_w, view_h);
         return;
     }
 
@@ -129,9 +139,19 @@ fn viewGrid(s: *app.State, c: *ui.Context) void {
         defer c.end();
         const empty = ui.div(c).column().itemsCenter().gap(10);
         defer empty.end();
-        ui.icon(c, "photo", .{ .size = 34, .color = th.muted });
+        ui.icon(c, if (pictures.len == 0) "photo" else "magnifyingglass", .{ .size = 34, .color = th.muted });
         if (pictures.len == 0) {
-            ui.label(c, tr.no_pictures);
+            // The folder is really empty: say so, say what would fill it,
+            // and leave a way somewhere else.
+            ui.text(c, tr.no_pictures, .{ .size = 14, .color = th.muted });
+            ui.text(c, tr.formats_hint, .{ .size = 12, .color = th.muted });
+            ui.row(c, .{ .gap = 8, .align_items = .center, .padding = .{ .top = 6 } });
+            defer c.end();
+            if (kit.button(c, tr.open_folder, .{ .size = .sm, .variant = .primary }).clicked) shell.askForFolder(s);
+            if (kit.button(c, tr.rescan, .{ .size = .sm }).clicked) {
+                s.relist_pending = true;
+                c.changed = true;
+            }
         } else {
             // What emptied the wall, said its own way: the filter's
             // verdict, or the search's.
@@ -234,6 +254,35 @@ fn viewGrid(s: *app.State, c: *ui.Context) void {
     // frame is wanted as soon as each one lands -- the view is a
     // function of the state, and the state is still arriving.
     if (waiting > 0) c.animationFrame();
+}
+
+/// The wall, sketched while the pictures' sizes are still arriving: the
+/// same columns the density would make, in the well's quiet colour, so
+/// the page is a wall being measured rather than a page with nothing on
+/// it. Nothing here is clickable, and the real tiles replace it whole.
+fn skeletonWall(s: *app.State, c: *ui.Context, view_w: f32, view_h: f32) void {
+    const k = theme.colors(s.dark);
+    const gap: f32 = 6;
+    const pad: f32 = 16;
+    const cols = masonry.columnsFor(view_w, .{ .columns = 12, .target = s.density.row(), .gap = gap, .padding = pad });
+    const cell = (view_w - 2 * pad - gap * @as(f32, @floatFromInt(cols - 1))) / @as(f32, @floatFromInt(cols));
+    if (!(cell > 8)) return;
+    const rows_wanted = @as(usize, @intFromFloat(@max(1, (view_h - 40) / (cell + gap))));
+    const rows = @min(8, rows_wanted);
+    var r: usize = 0;
+    while (r < rows) : (r += 1) {
+        const line = ui.div(c).row().wFull().gap(gap).px(pad).py(gap / 2);
+        defer line.end();
+        var i: usize = 0;
+        while (i < cols) : (i += 1) {
+            _ = c.leaf(.{
+                .width = .{ .px = cell },
+                .height = .{ .px = cell },
+                .radius = 4,
+                .background = k.well,
+            }, .none, null);
+        }
+    }
 }
 
 /// The picture the grid's coordinates fall on, or null on the ground.

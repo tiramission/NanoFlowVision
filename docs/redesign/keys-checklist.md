@@ -11,7 +11,8 @@
 | `⌘O` | 打开目录（原生对话框） | ✅ | `shell.askForFolder`；对话框在帧外打开（AGENTS.md 规则） |
 | `⌘,` | 设置面板 | ✅ | `app.view` 绑定 `⌘,` → `settings_open` |
 | `⌘B` | 显示 / 隐藏导航栏 | ✅ | `app.zig` `rail_visible`；`rail-collapsed.png` |
-| `⌘F` | 聚焦搜索框 | 🚧 | 行为已在（搜索框可点可输入）；程序化聚焦依赖字段焦点 API，见 02 §11 缺口清单 |
+| `⌘F` | 聚焦搜索框 | ✅ | `app.view` 置 `focus_search`；`shell` 在框前 `c.focus = c.peekId(null)`；`tests_shell` 搜索测试 |
+| `⌘/` | 键盘一览 | ✅ | `app.view` 绑定 `⌘/` → `keys_open`；设置面板页脚另有入口 |
 | `⌘D` | 外观循环 | ✅ | `toggleDark`；`tests_shell` 设置面板测试 |
 | `⌘↑` | 上级目录 | ✅ | `app.view` 绑定 `⌘↑` → `shell.goUp` |
 | `F5` | 重新扫描当前目录 | ✅ | `app.view` 绑定 `F5` → `relist_pending` |
@@ -63,6 +64,14 @@
 
 ## 未绑定项的归宿
 
-`⌘F`（聚焦搜索框）是唯一未绑定的组合键：行为已在（搜索框可点可输入），
-但程序化聚焦需要 nanoui 的字段焦点 API（`c.focus` 的 id 在构建期才产生），
-记入 02 §11 的框架缺口清单，随 a11y/焦点环一起做。
+已无未绑定的组合键。`⌘F` 在 2026-11 的打磨里接上了：`c.focus` 接一个稳定的搜索框 id
+（`c.next_key = "search"` + `c.peekId`）就够，不需要新 API（见 06-polish.md）。
+
+## 导航栏的指针动作
+
+| 手势 | 动作 | 状态 | 证据 |
+|---|---|---|---|
+| 拖右缘 4pt | 改宽 200–360（松手写 config） | ✅ | `rail.zig` 的 handle；`tests_shell` 拖宽/复位 |
+| 双击右缘 | 复位 240 | ✅ | 同上 |
+| 单击 chevron | 只折叠 / 展开，不打开 | ✅ | `folderRow`；`tests_view` |
+| 单击根行 | 回到根目录 | ✅ | `folderRow(s, &s.tree)` |

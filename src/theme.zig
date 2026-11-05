@@ -45,6 +45,12 @@ pub const Colors = struct {
     hover: nanoui.ui.Color,
     control: nanoui.ui.Color,
     control_on: nanoui.ui.Color,
+    /// The veil a photograph can carry: a name along its foot, a chip in
+    /// its corner, the bar over the large view. Dark enough that white
+    /// words clear the contrast line on a white photograph, and on a
+    /// black one too. One value for both rooms -- what is under it is a
+    /// picture, not the room.
+    scrim: nanoui.ui.Color,
     /// The star -- the one content colour the interface owns.
     grade: nanoui.ui.Color,
     green: nanoui.ui.Color,
@@ -70,6 +76,7 @@ pub fn colors(dark: bool) Colors {
             .hover = white.alpha(0.05),
             .control = nanoui.ui.Color.hex(0x1a1d21),
             .control_on = nanoui.ui.Color.hex(0x262a2f),
+            .scrim = black.alpha(0.62),
             .grade = nanoui.ui.Color.hex(0xe8b93b),
             .green = nanoui.ui.Color.hex(0x7fbf6a),
             .red = nanoui.ui.Color.hex(0xe86f5e),
@@ -92,6 +99,7 @@ pub fn colors(dark: bool) Colors {
         .hover = black.alpha(0.04),
         .control = nanoui.ui.Color.hex(0xe9e9e4),
         .control_on = nanoui.ui.Color.hex(0xffffff),
+        .scrim = black.alpha(0.62),
         .grade = nanoui.ui.Color.hex(0x8a6a10),
         .green = nanoui.ui.Color.hex(0x4b7a32),
         .red = nanoui.ui.Color.hex(0xa33227),
@@ -178,6 +186,15 @@ test "every text token is over the contrast line" {
         // The inverted pair carries its own ink: a primary button's label,
         // white on graphite and ink on paper.
         try std.testing.expect(contrast(k.on_picked, k.accent) >= 4.5);
+        // The veil sits over photographs, so it is held to the worst one
+        // there is: white words on a white picture, under the veil.
+        for ([_]nanoui.ui.Color{ .{ .r = 1, .g = 1, .b = 1 }, k.page }) |under| {
+            const over = under.mix(black, k.scrim.a);
+            if (contrast(white, over) < 4.5) {
+                std.debug.print("\n{s}: white on the veil over {any} is {d:.2}:1\n", .{ if (dark) "dark" else "light", under, contrast(white, over) });
+                return error.ContrastTooLow;
+            }
+        }
         // And the tertiary never lands on the rail's slightly other ground
         // without clearing the same 3.
         try std.testing.expect(contrast(k.tertiary, k.sidebar) >= 3);

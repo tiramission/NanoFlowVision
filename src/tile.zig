@@ -18,7 +18,6 @@ const theme = @import("theme.zig");
 
 /// Draws one picture where the layout put it.
 pub fn view(s: *app.State, c: *ui.Context, pic: *model.Picture, place: masonry.Placement, index: usize) void {
-    const th = c.theme;
     const k = theme.colors(s.dark);
     const tr = i18n.strings(s.lang);
     // The tile's own ground: what shows while the photograph is on its
@@ -57,11 +56,15 @@ pub fn view(s: *app.State, c: *ui.Context, pic: *model.Picture, place: masonry.P
     const my = c.input.mouse.y;
     const hovered = mx >= rect.x and mx < rect.x + rect.w and
         my >= rect.y and my < rect.y + rect.h;
-    // The pointer is on it: a hairline says this is the one the menu
-    // and the clicks mean.
+    // The pointer is on it: a lift and a hairline say this is the one the
+    // menu and the clicks mean. The lift is painted over the photograph,
+    // since a ground under it would never be seen.
     if (hovered) {
+        _ = c.leaf(.{ .absolute = true, .width = .{ .px = place.w }, .height = .{ .px = place.h }, .background = k.hover }, .none, null);
+        const edge = ui.div(c).absolute().offset(0, 0).w(place.w).h(place.h).rounded(4);
+        defer edge.end();
         const n = c.node(c.stack.items[c.stack.items.len - 1]);
-        n.style.border = th.border;
+        n.style.border = k.line2;
     }
 
     // The photograph, or its place while the pixels are on their way.
@@ -97,19 +100,20 @@ pub fn view(s: *app.State, c: *ui.Context, pic: *model.Picture, place: masonry.P
     }
     // The choice's own ring, round the tile: the one saturated mark the
     // wall makes, in the theme's inverted accent. Drawn over the
-    // photograph -- a border under it would never be seen.
+    // photograph -- a border under it would never be seen -- and just
+    // outside the tile, so it reads as a ring and not as a frame.
     if (chosen) {
-        const ring = ui.div(c).absolute().offset(0, 0).w(place.w).h(place.h).rounded(4).border(k.accent).borderW(2);
+        const ring = ui.div(c).absolute().offset(-2, -2).w(place.w + 4).h(place.h + 4).rounded(6).border(k.accent).borderW(2);
         defer ring.end();
     }
     // The keyboard's place, a hairline in from the tile's edge: a mark
     // of its own, so the cursor and the choice can stand on one tile
     // and still be told apart.
     if (is_cursor) {
-        const inner = ui.div(c).absolute().offset(3, 3).w(place.w - 6).h(place.h - 6);
+        const inner = ui.div(c).absolute().offset(3, 3).w(place.w - 6).h(place.h - 6).rounded(3);
         defer inner.end();
         const n = c.node(c.stack.items[c.stack.items.len - 1]);
-        n.style.border = k.secondary;
+        n.style.border = k.tertiary;
     }
 
     // The photograph's name and weight along its foot: what the eye
@@ -120,7 +124,7 @@ pub fn view(s: *app.State, c: *ui.Context, pic: *model.Picture, place: masonry.P
     const captioned = hovered or is_cursor or chosen;
     if (captioned) {
         const foot = ui.div(c).row().absolute().offset(0, place.h - 26).w(place.w).h(26)
-            .itemsCenter().gap(8).px(8).bg(ui.Color.black.alpha(0.45));
+            .itemsCenter().gap(8).px(8).bg(k.scrim);
         defer foot.end();
         // The name takes the room that is left once the weight has its
         // own: clipped, so a long name ends at the tile's edge instead of
@@ -128,12 +132,12 @@ pub fn view(s: *app.State, c: *ui.Context, pic: *model.Picture, place: masonry.P
         {
             const room = ui.div(c).row().grow().itemsCenter().clip();
             defer room.end();
-            ui.text(c, pic.name, .{ .size = 12, .color = ui.Color.white });
+            ui.text(c, pic.name, .{ .size = 13, .color = ui.Color.white });
         }
         if (s.shared.measuredOf(pic.path)) |known| {
             if (known.bytes > 0) {
                 var buf: [24]u8 = undefined;
-                ui.textf(c, .{ .size = 11, .mono = true, .color = ui.Color.white.alpha(0.7) }, "{s}", .{statusbar.sizeText(&buf, known.bytes)});
+                ui.textf(c, .{ .size = 11, .mono = true, .color = ui.Color.white.alpha(0.75) }, "{s}", .{statusbar.sizeText(&buf, known.bytes)});
             }
         }
     }
@@ -147,7 +151,7 @@ pub fn view(s: *app.State, c: *ui.Context, pic: *model.Picture, place: masonry.P
             const how_many: usize = @min(5, @as(usize, @intCast(@min(known.rating, 5))));
             const lifted: f32 = if (captioned) 8 + 26 else 6;
             const chip = ui.div(c).row().absolute().offset(6, place.h - lifted - 18).h(18)
-                .itemsCenter().px(5).rounded(4).bg(ui.Color.black.alpha(0.45));
+                .itemsCenter().px(5).rounded(4).bg(k.scrim);
             defer chip.end();
             ui.text(c, stars[how_many - 1], .{ .size = 10, .color = k.grade });
         }
@@ -161,15 +165,18 @@ pub fn view(s: *app.State, c: *ui.Context, pic: *model.Picture, place: masonry.P
         ui.icon(c, "checkmark", .{ .size = 11, .color = k.page });
     }
 
-    // The menu's corner, on hover: a chip that reads on any photograph.
+    // The menu's corner: a chip that reads on any photograph, and one
+    // the keyboard can see too -- the cursor's tile wears it even when
+    // the pointer is elsewhere, so the menu is never a mouse-only thing.
     // It is drawn after the photograph, or the photograph's own pixels
     // would land on top of it -- a corner no one can see, though it
     // still answers clicks.
-    if (hovered and s.menu_for == null and s.renaming == null) {
+    if ((hovered or is_cursor) and s.menu_for == null and s.renaming == null) {
         const corner = ui.div(c).absolute().offset(place.w - 36, 6);
         defer corner.end();
         var chip = ui.div(c).row().w(24).h(24).center().rounded(6)
-            .bg(ui.Color.black.alpha(0.55)).control();
+            .bg(k.scrim).control();
+        chip = chip.hover(ui.Color.white.alpha(0.16));
         defer chip.end();
         ui.text(c, "⋯", .{ .size = 13, .color = .white });
         if (chip.clicked()) {

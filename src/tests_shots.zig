@@ -26,7 +26,7 @@ test "snapshot: the grid, lit and chosen" {
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 1280, .height = 800 });
+    try tests_mod.initTester(&t, gpa, state, 1280, 800);
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
     t.frame();
@@ -60,7 +60,7 @@ test "snapshot: the grid in the dark" {
     // The tester's theme is told at init: the room is dark from the
     // first frame.
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 1280, .height = 800, .dark = true });
+    try tests_mod.initTester(&t, gpa, state, 1280, 800);
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
     t.frame();
@@ -81,7 +81,7 @@ test "snapshot: the narrow window keeps its way" {
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 1280, .height = 800 });
+    try tests_mod.initTester(&t, gpa, state, 1280, 800);
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
     try t.clickText("album");
@@ -100,7 +100,7 @@ test "snapshot: the large view, with its strip and folded facts" {
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 1280, .height = 800 });
+    try tests_mod.initTester(&t, gpa, state, 1280, 800);
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
     t.frame();
@@ -143,7 +143,7 @@ test "snapshot: the large view, zoomed, facts open" {
     const state = try app.State.create(gpa, std.testing.io, path);
     defer state.deinit();
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 1280, .height = 800 });
+    try tests_mod.initTester(&t, gpa, state, 1280, 800);
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
     t.frame();
@@ -177,7 +177,7 @@ test "snapshot: the settings sheet over its scrim" {
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 1280, .height = 800 });
+    try tests_mod.initTester(&t, gpa, state, 1280, 800);
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
     try t.clickText("Settings");
@@ -195,7 +195,7 @@ test "snapshot: the empty folder" {
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 1280, .height = 800 });
+    try tests_mod.initTester(&t, gpa, state, 1280, 800);
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
     try t.clickText("void");
@@ -212,7 +212,7 @@ test "snapshot: the search that matches nothing" {
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 1280, .height = 800 });
+    try tests_mod.initTester(&t, gpa, state, 1280, 800);
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
     try t.clickText("Search…");
@@ -248,7 +248,7 @@ test "snapshot: a tile that failed beside one still waiting" {
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 1280, .height = 800 });
+    try tests_mod.initTester(&t, gpa, state, 1280, 800);
     defer t.deinit();
 
     // The moment the broken one has failed and the big one is still on
@@ -275,7 +275,7 @@ test "snapshot: the rail folded away" {
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 1280, .height = 800 });
+    try tests_mod.initTester(&t, gpa, state, 1280, 800);
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
     _ = t.shortcut(.{ .key = 'b', .ctrl = true });
@@ -292,7 +292,7 @@ test "snapshot: the measuring under way" {
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 1280, .height = 800 });
+    try tests_mod.initTester(&t, gpa, state, 1280, 800);
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
     // The wall before its sizes are known: the answers go out of the
@@ -315,7 +315,7 @@ test "snapshot: the folder that cannot be read" {
     const state = try app.State.create(gpa, std.testing.io, path);
     defer state.deinit();
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 1280, .height = 800 });
+    try tests_mod.initTester(&t, gpa, state, 1280, 800);
     defer t.deinit();
     t.frame();
     t.frame();
@@ -350,7 +350,7 @@ test "snapshot: the choice the filter took off the wall" {
     const state = try app.State.create(gpa, std.testing.io, path);
     defer state.deinit();
     var t: ui.Tester = undefined;
-    try t.init(gpa, .init(state, app.State.view), .{ .width = 1280, .height = 800 });
+    try tests_mod.initTester(&t, gpa, state, 1280, 800);
     defer t.deinit();
     try tests_mod.waitForLayout(&t, state);
 

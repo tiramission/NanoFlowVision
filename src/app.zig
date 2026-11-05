@@ -27,12 +27,11 @@ const theme = @import("theme.zig");
 const nfd = @import("nfd");
 const win = @import("win.zig");
 
-/// How much room between and around the pictures: the 4-point grid of
-/// the design, with 6 between neighbours (docs/redesign/03-visual.md).
+/// How much room between and around the pictures: 6 between neighbours,
+/// 16 around (docs/redesign/03-visual.md).
 const gap: f32 = 6;
 const padding: f32 = 16;
-/// How many columns the gallery has at most. The density sets the
-/// target row height; this is only the ceiling the columns never pass.
+/// The ceiling the columns never pass; the density sets the target.
 const max_columns: usize = 12;
 
 /// The window's own name, when nothing else is being said in the title.
@@ -103,12 +102,10 @@ pub const State = struct {
     watcher: watch.Watcher = undefined,
     /// The folder changed on disk: it is listed again before the frame.
     relist_pending: bool = false,
-    // A folder dialog was asked for, and the loop is to open it after
-    // the frame ends.
+    // A folder dialog was asked for: the loop opens it after the frame.
     dialog_pending: bool = false,
-    /// A folder the reader picked in the dialog, waiting for the frame to
-    /// end before it becomes the root: the frame is still walking the old
-    /// tree, and the old tree is not the time to free.
+    /// A folder the reader picked, waiting for the frame to end: the
+    /// frame is still walking the old tree, not the time to free it.
     reroot_pending: ?[]u8 = null,
     /// The folder the settings are kept in, owned.
     settings_dir: ?[]u8 = null,
@@ -128,14 +125,20 @@ pub const State = struct {
     rename_error: bool = false,
     /// How wide the navigation column is, 200 to 360.
     rail_w: f32 = 240,
+    /// The rail's edge is being dragged: the width it lands on is
+    /// written once, when the hand lets go. The grab keeps taking hold
+    /// from moving anything on its own.
+    rail_dragging: bool = false,
+    rail_grab: f32 = 0,
+    /// The next frame puts the caret in the search box (⌘F).
+    focus_search: bool = false,
     /// Where the button that brings the rail back was drawn, while the
     /// rail is folded away.
     rail_toggle_at: ui.Rect = .{},
-    /// The system appearance was last asked at this frame's time, for
-    /// the "follow the system" setting, which is in no hurry.
+    /// The system appearance was last asked then (the "follow the
+    /// system" setting is in no hurry).
     system_checked: f64 = 0,
-    /// When the folder was last listed: the status bar's "3s ago".
-    /// Negative until the first frame knows what time it is.
+    /// When the folder was last listed (the status bar's "3s ago").
     listed_at: f64 = -1,
     /// The command bar's menus, and the buttons they hang from.
     sort_open: bool = false,
@@ -148,10 +151,13 @@ pub const State = struct {
     density_at: ui.Rect = .{},
     filter_at: ui.Rect = .{},
     more_at: ui.Rect = .{},
-    /// The star filter: 0 says everything; N says N stars and up. The
-    /// folders the reader came along, newest last, and where in it the
-    /// view stands: the way back and forward. The keyboard's map is up
-    /// while `keys_open`.
+    /// Where the search's xmark was drawn (the tests click it there).
+    search_clear_at: ui.Rect = .{},
+    /// Where the large view's close chip was drawn.
+    large_close_at: ui.Rect = .{},
+    /// The star filter: 0 says everything, N says N stars and up. The
+    /// folders walked form the way back and forward; `keys_open` says
+    /// the keyboard's map is up.
     filter_stars: usize = 0,
     history: std.ArrayList([]u8) = .empty,
     history_at: usize = 0,
@@ -202,7 +208,7 @@ pub const State = struct {
             .io = io,
             .shared = .{ .gpa = gpa, .io = io },
             .pool = .{ .gpa = gpa, .io = io, .shared = &s.shared },
-            .tree = .{ .path = root_path, .name = root_name },
+            .tree = .{ .path = root_path, .name = root_name, .expanded = true },
             .toaster = .{ .gpa = gpa },
             .select = .{ .gpa = gpa },
         };
@@ -233,10 +239,9 @@ pub const State = struct {
         s.gpa.destroy(s);
     }
 
-    /// The folders inside a folder, and its pictures: the pictures of
-    /// the subfolders too, when the gallery is set to take them. A folder
-    /// that is already loaded is left as it is unless a listing is asked
-    /// for, because the tree keeps what the eye opened.
+    /// The folders inside a folder, and its pictures. A folder already
+    /// loaded is left as it is unless a listing is asked for: the tree
+    /// keeps what the eye opened.
     fn loadChildren(s: *State, folder: *model.Folder) !void {
         if (folder.loaded and !s.relist_pending) return;
 
@@ -318,8 +323,7 @@ pub const State = struct {
 
     /// The folder changed on disk (a picture went to the bin, a paste
     /// landed): what it holds is read again. The cache keeps what is in
-    /// it -- the pictures that remain are keyed by their paths, which
-    /// did not change.
+    /// it, keyed by paths that did not change.
     pub fn relist(s: *State) void {
         const folder = s.current orelse return;
         folder.loaded = false;
@@ -340,8 +344,8 @@ pub const State = struct {
         if (s.loadChildren(folder)) {
             s.folder_broken = false;
         } else |_| {
-            // The folder could not be read -- gone, or never was one. The
-            // gallery stands empty and the view says what happened.
+            // Gone, or never was a folder: the view says so over an
+            // empty gallery.
             s.folder_broken = true;
         }
         s.current = folder;
@@ -353,8 +357,7 @@ pub const State = struct {
         s.laid_out_for = 0;
         s.last_offset = 0;
         s.scroll_to_top = true;
-        // A new folder starts unfiltered and unchosen; the sort and the
-        // star filter stay as they were.
+        // A new folder starts unfiltered and unchosen; the sort stays.
         s.search.clear();
         s.select.clear();
         shell.noteHistory(s);
@@ -490,9 +493,8 @@ pub const State = struct {
         s.select.keepAlive(folder.pictures);
     }
 
-    /// The pictures' places. Made once their sizes are known, and again when
-    /// the window is another width or the order changed: the gallery never
-    /// moves under the eye while it stays.
+    /// The pictures' places, made once their sizes are known and again
+    /// when the window or the order changes: never a move under the eye.
     pub fn updateLayout(s: *State, width: f32) void {
         const current = s.current orelse return;
         const pictures = current.pictures;
@@ -544,6 +546,12 @@ pub const State = struct {
             c.changed = true;
         }
         if (c.shortcut(.{ .key = ui.Shortcut.up, .ctrl = true })) shell.goUp(s);
+        // The search is a keystroke away: the caret goes where the words
+        // are typed, and the frame after that draws it.
+        if (c.shortcut(.{ .key = 'f', .ctrl = true })) {
+            s.focus_search = true;
+            c.changed = true;
+        }
         if (c.input.key == .f5) s.relist_pending = true;
         if (c.shortcut(.{ .key = '/', .ctrl = true })) {
             s.keys_open = true;

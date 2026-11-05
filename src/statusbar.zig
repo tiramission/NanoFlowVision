@@ -118,8 +118,21 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         // that is gone by then (a slice into it draws as so many tofu).
         var buf: [24]u8 = undefined;
         ui.textf(c, .{ .size = 12, .mono = true, .color = k.secondary }, "{s}", .{sizeText(&buf, shownBytes(s))});
+        // Where the keyboard stands, when it has walked somewhere: the
+        // cursor is a place on the wall, and a place deserves a number.
+        if (s.select.cursor) |ci| {
+            if (ci < s.shown.len) {
+                ui.text(c, "·", .{ .size = 12, .color = k.tertiary });
+                ui.text(c, i18n.cursorPosition(c.alloc(), s.lang, ci + 1), .{ .size = 12, .mono = true, .color = k.secondary });
+            }
+        }
     }
     ui.spacer(c);
+
+    // How the wall is ordered, said here so the eye never has to open a
+    // menu to learn it: the key, then the way it runs.
+    ui.text(c, c.print("{s} {s}", .{ sortWord(tr, s.sort), if (s.sort_ascending) "↑" else "↓" }), .{ .size = 12, .color = k.tertiary });
+    ui.text(c, "·", .{ .size = 12, .color = k.tertiary });
 
     // The watcher: a dot, the word, and how long since the folder moved.
     // The dot is green because the watch is running; the time says when.
@@ -130,6 +143,17 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         const since = if (s.listed_at < 0) 0 else @max(0, c.time - s.listed_at);
         ui.textf(c, .{ .size = 12, .mono = true, .color = k.tertiary }, "{s}", .{agoText(&buf, since)});
     }
+}
+
+/// The word the bar says for the sort key.
+fn sortWord(tr: i18n.Strings, key: app.SortKey) []const u8 {
+    return switch (key) {
+        .name => tr.sort_name,
+        .time => tr.sort_date,
+        .size => tr.sort_size,
+        .pixels => tr.sort_pixels,
+        .stars => tr.sort_stars,
+    };
 }
 
 /// The weight of what the gallery is showing, in bytes.

@@ -339,3 +339,56 @@ test "another folder can become the root" {
     // The old root's pictures are gone from the tree.
     try std.testing.expect(!t.hasText("pic-0.png"));
 }
+
+test "the large view's chrome stands off the picture, and its chips work" {
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const f = exif.Fixture.build(.little);
+    const jpeg = try tests_mod.exifJpeg(gpa, &f);
+    defer gpa.free(jpeg);
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "pic.jpg", .data = jpeg });
+    const cwd = try std.process.currentPathAlloc(std.testing.io, gpa);
+    defer gpa.free(cwd);
+    const path = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/tmp/{s}", .{ cwd, tmp.sub_path });
+    defer gpa.free(path);
+
+    const state = try app.State.create(gpa, std.testing.io, path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try t.init(gpa, .init(state, app.State.view), .{ .width = 1000, .height = 800, .theme = @import("theme.zig").forDark(false) });
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+    t.frame();
+
+    const where = state.first_picture orelse return error.NoPictureOnScreen;
+    t.doubleClick(where.x + where.w / 2, where.y + where.h / 2);
+    t.settle(0.3);
+    try std.testing.expect(state.large != null);
+
+    // The index and name live in the top bar; the facts stand below it,
+    // in the picture's corner -- never under the bar they would hide.
+    const index = t.findText("1 / 1") orelse return error.TextNotFound;
+    try std.testing.expect(index.y < 44);
+    const info = t.findText("Info") orelse return error.TextNotFound;
+    try std.testing.expect(info.y > 44);
+
+    // The strip's cells keep the pictures' shapes and stay in the
+    // window: nothing runs off the edge.
+    t.frame();
+    try std.testing.expect(state.filmstrip_at.items.len >= 1);
+    for (state.filmstrip_at.items) |cell| {
+        try std.testing.expect(cell.x >= 0 and cell.x + cell.w <= 1000.5);
+        try std.testing.expect(cell.y + cell.h <= 800.5);
+        try std.testing.expect(cell.h <= 48.5);
+    }
+
+    // The way out is a click, not only a key.
+    const shut = state.large_close_at;
+    try std.testing.expect(shut.w > 0);
+    t.click(shut.x + shut.w / 2, shut.y + shut.h / 2);
+    t.settle(0.3);
+    try std.testing.expect(state.large == null);
+}

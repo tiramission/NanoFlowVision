@@ -10,6 +10,7 @@ const ui = nanoui.ui;
 const app = @import("app.zig");
 const config = @import("config.zig");
 const exif = @import("exif.zig");
+const i18n = @import("i18n.zig");
 const statusbar = @import("statusbar.zig");
 const xmp = @import("xmp.zig");
 const tests_mod = @import("tests.zig");
@@ -220,7 +221,7 @@ test "the status bar says what is here, and that the folder is watched" {
 
     // The count of what is shown, along the bottom: its own line of
     // text, and in the bar rather than anywhere else in the window.
-    const count = t.findText("1 pictures") orelse return error.TextNotFound;
+    const count = t.findText("1 picture") orelse return error.TextNotFound;
     try std.testing.expect(count.y > 540);
     try std.testing.expect(t.hasText("·"));
     // And that the folder is being watched.
@@ -298,7 +299,7 @@ test "a search that matches nothing offers the way back" {
     try t.clickText("Clear search");
     t.settle(0.2);
     try std.testing.expectEqual(@as(usize, 1), state.shown.len);
-    try std.testing.expect(t.hasText("1 pictures"));
+    try std.testing.expect(t.hasText("1 picture"));
 }
 
 test "the more menu gathers the choice's words, the subfolders and the settings" {
@@ -512,3 +513,4 @@ test "a rated picture wears its stars in the tile's corner" {
     try std.testing.expect(stars.x >= left and stars.x < left + p.w / 2);
     try std.testing.expect(stars.y > top + p.h / 2 and stars.y + stars.h <= top + p.h);
 }
+

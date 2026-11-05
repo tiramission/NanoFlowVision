@@ -93,6 +93,20 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             c.changed = true;
         }
     }
+
+    // The keyboard's map, at the sheet's foot: the one page that says
+    // every key, a click or ⌘/ away.
+    {
+        const row = ui.div(c).row().wFull().pt(12);
+        defer row.end();
+        if (kit.button(c, tr.keys_title, .{ .variant = .ghost, .size = .sm, .icon = "command" }).clicked) {
+            s.settings_open = false;
+            s.keys_open = true;
+            c.changed = true;
+        }
+        ui.spacer(c);
+        ui.text(c, ui.keys.label("⌘/"), .{ .size = 11, .mono = true, .color = k.tertiary });
+    }
 }
 
 /// The name of the group of controls that follows.

@@ -104,6 +104,17 @@ pub const Strings = struct {
     /// The keyboard's map, said in one piece, one line to a key.
     keys_title: []const u8,
     keys_map: []const u8,
+    /// "#{d}", where the keyboard's cursor stands.
+    cursor_position: []const u8,
+    /// "JPG, PNG, HEIC, WebP, AVIF…", under the empty folder's words.
+    formats_hint: []const u8,
+    /// What the icon buttons are, for the pointer that rests on one.
+    filter_label: []const u8,
+    more_label: []const u8,
+    sidebar_label: []const u8,
+    close_label: []const u8,
+    prev_picture: []const u8,
+    next_picture: []const u8,
 };
 
 const en: Strings = .{
@@ -182,7 +193,15 @@ const en: Strings = .{
     .filter_empty = "Nothing rated ★≥{d}",
     .hidden_by_filter = "{d} selected, hidden by the filter",
     .keys_title = "Keys",
-    .keys_map = "Ctrl+O  Open folder\nCtrl+,  Settings\nCtrl+D  Appearance\nCtrl+↑  Up one folder\nF5  Rescan\nTab  Tree ⇄ grid\nArrows, Home, End, PgUp/PgDn  Walk the wall\nSpace / Enter  Open large\n0–5  Rate\nBackspace  Bin (asks when many)\nF2  Rename\nCtrl+C  Copy\nCtrl+Shift+R  Reveal\nCtrl+Enter  Open with system\nCtrl+A  Select all\nCtrl+V  Paste\nEsc  Let go\n— large view —\nArrows  Previous / next\nZ  Fit ⇄ 1:1\nI  Fold the facts\nT  Tag\nWheel over the strip  Step",
+    .keys_map = "Ctrl+O  Open folder\nCtrl+,  Settings\nCtrl+D  Appearance\nCtrl+↑  Up one folder\nF5  Rescan\nTab  Tree ⇄ grid\nCtrl+F  Search\nCtrl+/  Keys\nArrows, Home, End, PgUp/PgDn  Walk the wall\nSpace / Enter  Open large\n0–5  Rate\nBackspace  Bin (asks when many)\nF2  Rename\nCtrl+C  Copy\nCtrl+Shift+R  Reveal\nCtrl+Enter  Open with system\nCtrl+A  Select all\nCtrl+V  Paste\nEsc  Let go\n— large view —\nArrows  Previous / next\nZ  Fit ⇄ 1:1\nI  Fold the facts\nT  Tag\nWheel over the strip  Step",
+    .cursor_position = "#{d}",
+    .formats_hint = "JPG, PNG, HEIC, WebP, AVIF…",
+    .filter_label = "Filter by stars",
+    .more_label = "More",
+    .sidebar_label = "Sidebar",
+    .close_label = "Close",
+    .prev_picture = "Previous",
+    .next_picture = "Next",
 };
 
 const zh: Strings = .{
@@ -261,7 +280,15 @@ const zh: Strings = .{
     .filter_empty = "没有 ★≥{d} 的图片",
     .hidden_by_filter = "另有 {d} 张已选的被筛选隐藏",
     .keys_title = "键盘",
-    .keys_map = "Ctrl+O  打开目录\nCtrl+,  设置\nCtrl+D  外观\nCtrl+↑  上级目录\nF5  重新扫描\nTab  树 ⇄ 网格\n方向键、Home、End、PgUp/PgDn  走网格\nSpace / Enter  打开大图\n0–5  评分\nBackspace  回收站（多张先问）\nF2  重命名\nCtrl+C  复制\nCtrl+Shift+R  在文件夹中显示\nCtrl+Enter  用系统打开\nCtrl+A  全选\nCtrl+V  粘贴\nEsc  放开\n— 大图 —\n方向键  上一张 / 下一张\nZ  适应 ⇄ 1:1\nI  收起信息\nT  标签\n条上滚轮  逐张",
+    .keys_map = "Ctrl+O  打开目录\nCtrl+,  设置\nCtrl+D  外观\nCtrl+↑  上级目录\nF5  重新扫描\nTab  树 ⇄ 网格\nCtrl+F  搜索\nCtrl+/  键盘一览\n方向键、Home、End、PgUp/PgDn  走网格\nSpace / Enter  打开大图\n0–5  评分\nBackspace  回收站（多张先问）\nF2  重命名\nCtrl+C  复制\nCtrl+Shift+R  在文件夹中显示\nCtrl+Enter  用系统打开\nCtrl+A  全选\nCtrl+V  粘贴\nEsc  放开\n— 大图 —\n方向键  上一张 / 下一张\nZ  适应 ⇄ 1:1\nI  收起信息\nT  标签\n条上滚轮  逐张",
+    .cursor_position = "第 {d} 张",
+    .formats_hint = "支持 JPG、PNG、HEIC、WebP、AVIF…",
+    .filter_label = "按星级筛选",
+    .more_label = "更多",
+    .sidebar_label = "导航栏",
+    .close_label = "关闭",
+    .prev_picture = "上一张",
+    .next_picture = "下一张",
 };
 
 /// The strings for `lang`.
@@ -290,6 +317,8 @@ pub const langs = [_]Lang{ .en, .zh };
 
 /// "{n} pictures", the header's count of a whole folder.
 pub fn pictures(alloc: std.mem.Allocator, lang: Lang, n: usize) []const u8 {
+    // One picture is a picture, not a plural: the count is a sentence.
+    if (lang == .en and n == 1) return "1 picture";
     return switch (lang) {
         .en => std.fmt.allocPrint(alloc, en.pictures, .{n}) catch "…",
         .zh => std.fmt.allocPrint(alloc, zh.pictures, .{n}) catch "…",
@@ -369,6 +398,14 @@ pub fn hiddenByFilter(alloc: std.mem.Allocator, lang: Lang, n: usize) []const u8
     };
 }
 
+/// "#{d}" / "第 {d} 张": where the keyboard's cursor stands.
+pub fn cursorPosition(alloc: std.mem.Allocator, lang: Lang, n: usize) []const u8 {
+    return switch (lang) {
+        .en => std.fmt.allocPrint(alloc, en.cursor_position, .{n}) catch "…",
+        .zh => std.fmt.allocPrint(alloc, zh.cursor_position, .{n}) catch "…",
+    };
+}
+
 /// "{d} of {d} selected", the status bar's line while a choice stands.
 pub fn selectedOf(alloc: std.mem.Allocator, lang: Lang, chosen: usize, total: usize) []const u8 {
     return switch (lang) {
@@ -436,6 +473,14 @@ test "both languages carry every string, non-empty" {
             s.filter_empty,     s.hidden_by_filter,
             s.keys_title,
             s.keys_map,
+            s.cursor_position,
+            s.formats_hint,
+            s.filter_label,
+            s.more_label,
+            s.sidebar_label,
+            s.close_label,
+            s.prev_picture,
+            s.next_picture,
         };
         for (all) |v| try std.testing.expect(v.len > 0);
     }
