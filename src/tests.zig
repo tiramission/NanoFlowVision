@@ -65,6 +65,43 @@ pub fn makeSampleWith(gpa: std.mem.Allocator, count: usize) !Sample {
     return .{ .tmp = tmp, .path = path };
 }
 
+/// A folder for a snapshot, at a path that does not change: the tester's
+/// own temporary folders are named at random, and a snapshot carrying one
+/// would differ on every run -- leaving a binary change to commit every
+/// time. This one lives at `.zig-cache/shots/<name>`, emptied first.
+pub const ShotFolder = struct {
+    path: []u8,
+
+    pub fn deinit(f: ShotFolder, gpa: std.mem.Allocator) void {
+        gpa.free(f.path);
+    }
+};
+
+pub fn makeShotFolder(gpa: std.mem.Allocator, name: []const u8, count: usize) !ShotFolder {
+    const cwd = try std.process.currentPathAlloc(std.testing.io, gpa);
+    defer gpa.free(cwd);
+    const path = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/shots/{s}", .{ cwd, name });
+    errdefer gpa.free(path);
+    const io = std.testing.io;
+    // Written through a relative path (Zig's file API takes those), and
+    // handed to the app as an absolute one.
+    const rel = try std.fmt.allocPrint(gpa, ".zig-cache/shots/{s}", .{name});
+    defer gpa.free(rel);
+    std.Io.Dir.cwd().deleteTree(io, rel) catch {};
+    try std.Io.Dir.cwd().createDirPath(io, rel);
+    // Red squares, as PNGs the app can read.
+    var red = [_]u8{ 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255 };
+    const png = try ui.png.encode(gpa, .{ .bytes = red[0..], .width = 2, .height = 2 });
+    defer gpa.free(png);
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        const file = try std.fmt.allocPrint(gpa, "{s}/pic-{d}.png", .{ rel, i });
+        defer gpa.free(file);
+        try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = file, .data = png });
+    }
+    return .{ .path = path };
+}
+
 /// Waits until every thumbnail of the folder is decoded.
 pub fn waitForThumbs(t: *ui.Tester, state: *app.State) !void {
     var tries: usize = 0;

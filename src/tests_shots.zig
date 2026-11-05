@@ -23,7 +23,7 @@ fn ensureDir() !void {
 test "snapshot: the grid, lit and chosen" {
     try ensureDir();
     const gpa = std.testing.allocator;
-    var sample = try tests_mod.makeSampleWith(gpa, 12);
+    var sample = try tests_mod.makeShotFolder(gpa, "grid-light", 12);
     defer sample.deinit(gpa);
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
@@ -53,7 +53,7 @@ test "snapshot: the grid, lit and chosen" {
 test "snapshot: the grid in the dark" {
     try ensureDir();
     const gpa = std.testing.allocator;
-    var sample = try tests_mod.makeSampleWith(gpa, 12);
+    var sample = try tests_mod.makeShotFolder(gpa, "grid-dark", 12);
     defer sample.deinit(gpa);
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
@@ -73,13 +73,17 @@ test "snapshot: the grid in the dark" {
 test "snapshot: the narrow window keeps its way" {
     try ensureDir();
     const gpa = std.testing.allocator;
-    var sample = try tests_mod.makeSampleWith(gpa, 4);
+    var sample = try tests_mod.makeShotFolder(gpa, "grid-narrow", 4);
     defer sample.deinit(gpa);
-    try sample.tmp.dir.createDirPath(std.testing.io, "album");
+    const album = try std.fmt.allocPrint(gpa, "{s}/album", .{sample.path});
+    defer gpa.free(album);
+    std.Io.Dir.createDirAbsolute(std.testing.io, album, .default_file) catch {};
     var red = [_]u8{ 0, 0, 255, 255 };
     const png = try ui.png.encode(gpa, .{ .bytes = red[0..], .width = 1, .height = 1 });
     defer gpa.free(png);
-    try sample.tmp.dir.writeFile(std.testing.io, .{ .sub_path = "album/two.png", .data = png });
+    const two = try std.fmt.allocPrint(gpa, "{s}/album/two.png", .{sample.path});
+    defer gpa.free(two);
+    try std.Io.Dir.cwd().writeFile(std.testing.io, .{ .sub_path = two, .data = png });
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
     var t: ui.Tester = undefined;
@@ -97,7 +101,7 @@ test "snapshot: the narrow window keeps its way" {
 test "snapshot: the large view, with its strip and folded facts" {
     try ensureDir();
     const gpa = std.testing.allocator;
-    var sample = try tests_mod.makeSampleWith(gpa, 12);
+    var sample = try tests_mod.makeShotFolder(gpa, "lightbox", 12);
     defer sample.deinit(gpa);
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
@@ -177,7 +181,7 @@ test "snapshot: the large view, zoomed, facts open" {
 test "snapshot: the settings sheet over its scrim" {
     try ensureDir();
     const gpa = std.testing.allocator;
-    var sample = try tests_mod.makeSampleWith(gpa, 12);
+    var sample = try tests_mod.makeShotFolder(gpa, "settings", 12);
     defer sample.deinit(gpa);
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
@@ -194,9 +198,11 @@ test "snapshot: the settings sheet over its scrim" {
 test "snapshot: the empty folder" {
     try ensureDir();
     const gpa = std.testing.allocator;
-    var sample = try tests_mod.makeSampleWith(gpa, 4);
+    var sample = try tests_mod.makeShotFolder(gpa, "empty", 4);
     defer sample.deinit(gpa);
-    try sample.tmp.dir.createDirPath(std.testing.io, "void");
+    const void_dir = try std.fmt.allocPrint(gpa, "{s}/void", .{sample.path});
+    defer gpa.free(void_dir);
+    std.Io.Dir.createDirAbsolute(std.testing.io, void_dir, .default_file) catch {};
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
     var t: ui.Tester = undefined;
@@ -212,7 +218,7 @@ test "snapshot: the empty folder" {
 test "snapshot: the search that matches nothing" {
     try ensureDir();
     const gpa = std.testing.allocator;
-    var sample = try tests_mod.makeSampleWith(gpa, 4);
+    var sample = try tests_mod.makeShotFolder(gpa, "no-match", 4);
     defer sample.deinit(gpa);
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
@@ -230,9 +236,11 @@ test "snapshot: the search that matches nothing" {
 test "snapshot: a tile that failed beside one still waiting" {
     try ensureDir();
     const gpa = std.testing.allocator;
-    var sample = try tests_mod.makeSampleWith(gpa, 1);
+    var sample = try tests_mod.makeShotFolder(gpa, "failed", 1);
     defer sample.deinit(gpa);
-    try sample.tmp.dir.writeFile(std.testing.io, .{ .sub_path = "broken.png", .data = "this is not a picture" });
+    const broken_path = try std.fmt.allocPrint(gpa, "{s}/broken.png", .{sample.path});
+    defer gpa.free(broken_path);
+    try std.Io.Dir.cwd().writeFile(std.testing.io, .{ .sub_path = broken_path, .data = "this is not a picture" });
     // A big second picture: its decode outlasts the broken one's
     // failure, so the two states stand together.
     const w: u32 = 1400;
@@ -248,7 +256,9 @@ test "snapshot: a tile that failed beside one still waiting" {
     }
     const png = try ui.png.encode(gpa, .{ .bytes = red, .width = w, .height = h });
     defer gpa.free(png);
-    try sample.tmp.dir.writeFile(std.testing.io, .{ .sub_path = "big.png", .data = png });
+    const big_path = try std.fmt.allocPrint(gpa, "{s}/big.png", .{sample.path});
+    defer gpa.free(big_path);
+    try std.Io.Dir.cwd().writeFile(std.testing.io, .{ .sub_path = big_path, .data = png });
 
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
@@ -275,7 +285,7 @@ test "snapshot: a tile that failed beside one still waiting" {
 test "snapshot: the rail folded away" {
     try ensureDir();
     const gpa = std.testing.allocator;
-    var sample = try tests_mod.makeSampleWith(gpa, 12);
+    var sample = try tests_mod.makeShotFolder(gpa, "rail-collapsed", 12);
     defer sample.deinit(gpa);
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
@@ -292,7 +302,7 @@ test "snapshot: the rail folded away" {
 test "snapshot: the measuring under way" {
     try ensureDir();
     const gpa = std.testing.allocator;
-    var sample = try tests_mod.makeSampleWith(gpa, 12);
+    var sample = try tests_mod.makeShotFolder(gpa, "measuring", 12);
     defer sample.deinit(gpa);
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
@@ -377,7 +387,7 @@ test "snapshot: the choice the filter took off the wall" {
 test "snapshot: the keys table" {
     try ensureDir();
     const gpa = std.testing.allocator;
-    var sample = try tests_mod.makeSampleWith(gpa, 4);
+    var sample = try tests_mod.makeShotFolder(gpa, "keys", 4);
     defer sample.deinit(gpa);
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
@@ -394,7 +404,7 @@ test "snapshot: the keys table" {
 test "snapshot: full screen, the chrome at rest" {
     try ensureDir();
     const gpa = std.testing.allocator;
-    var sample = try tests_mod.makeSampleWith(gpa, 6);
+    var sample = try tests_mod.makeShotFolder(gpa, "fullscreen", 6);
     defer sample.deinit(gpa);
     const state = try app.State.create(gpa, std.testing.io, sample.path);
     defer state.deinit();
