@@ -9,6 +9,7 @@ const app = @import("app.zig");
 const model = @import("model.zig");
 const thumbs = @import("thumbs.zig");
 const tests_mod = @import("tests.zig");
+const config = @import("config.zig");
 
 test "holding the left button looks at 1:1, and letting go puts it back" {
     const gpa = std.testing.allocator;
@@ -475,4 +476,118 @@ test "a press on the top bar is a press on a star, not a look" {
     t.ctx.pointerUp();
     t.ctx.input.button = .left;
     t.frame();
+}
+
+test "the top bar's buttons still take their clicks" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 2);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 900, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+
+    t.key(.down);
+    t.settle(0.1);
+    t.typeText(" ");
+    t.settle(0.2);
+    const key = try thumbs.largeKey(gpa, state.large.?.path);
+    defer gpa.free(key);
+    for (0..400) |_| {
+        t.frame();
+        if (state.shared.get(key)) |known| {
+            if (known.thumb != null) break;
+        }
+        std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake) catch {};
+    }
+    t.settle(0.2);
+    t.frame();
+
+    // The close chip at the bar's right end closes the view.
+    const shut = state.large_close_at;
+    try std.testing.expect(shut.w > 0);
+    t.click(shut.x + shut.w / 2, shut.y + shut.h / 2);
+    t.settle(0.2);
+    try std.testing.expect(state.large == null);
+}
+
+test "the bar's info chip folds the facts and back" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 2);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 900, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+
+    t.key(.down);
+    t.settle(0.1);
+    t.typeText(" ");
+    t.settle(0.2);
+    const key = try thumbs.largeKey(gpa, state.large.?.path);
+    defer gpa.free(key);
+    for (0..400) |_| {
+        t.frame();
+        if (state.shared.get(key)) |known| {
+            if (known.thumb != null) break;
+        }
+        std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake) catch {};
+    }
+    t.settle(0.2);
+    t.frame();
+
+    const info = state.large_info_at;
+    try std.testing.expect(info.w > 0);
+    const before = state.info_open;
+    t.click(info.x + info.w / 2, info.y + info.h / 2);
+    t.settle(0.2);
+    try std.testing.expect(state.info_open != before);
+}
+
+test "the press stays out of the bars for as long as they are painted" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 2);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 900, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+    t.settle(0.2);
+    t.frame();
+
+    // On the top bar's right end, where the chips are.
+    t.moveTo(880, 22);
+    t.ctx.input.button = .left;
+    t.ctx.pointerDown();
+
+    // The bars are painted while the chrome fades; a press on them belongs
+    // to them the whole time, not only while they are fully live. The gap
+    // between "live" (0.35) and "drawn" (0.02) is where a press used to fall
+    // through to the photograph behind the bar.
+    const peek = @import("peek.zig");
+    // The bar is 44 points high whatever its opacity: the room grows under
+    // the fade, the bar does not shrink. Both are passed here as the view
+    // passes them.
+    for ([_]f32{ 1.0, 0.5, 0.35, 0.2, 0.05, 0.03 }) |alpha| {
+        const looked = peek.mode(state, &t.ctx, .{
+            .bars = alpha > 0.02,
+            .top = 44,
+            .bottom = @import("filmstrip.zig").strip_h,
+            .facts = false,
+        });
+        try std.testing.expectEqual(@as(?app.ZoomMode, null), looked);
+    }
+    t.ctx.pointerUp();
 }

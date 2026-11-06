@@ -90,6 +90,6 @@
 ## 五、验证方式
 
 - `zig build test`：114 个测试，覆盖行为（断言矩形或状态，不只断言文字存在）。
-- `docs/redesign/shots/`：21 张状态快照，由 `tests_shots.zig` 与 `tests_meta.zig`
+- `docs/redesign/shots/`：22 张状态快照，由 `tests_shots.zig` 与 `tests_meta.zig`
   渲染，`src/shots.zig` 压缩后写入。
 - 界面的旧样子见 `git log`（重新设计之前的琥珀方案没有保留文档，也不需要）。

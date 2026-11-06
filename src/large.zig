@@ -281,9 +281,12 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             .fit = fit,
             .cover = cover,
         }, wheel, zoom_toggle, fill_toggle, peek.mode(s, c, .{
-            .bars = chrome_live,
-            .top = top_room,
-            .bottom = bottom_room,
+            .bars = chrome_drawn,
+            // The bar's own height, not the room it takes: while it is
+            // painted it is 44 points high whatever its opacity, and the
+            // room growing under the fade does not move the bar.
+            .top = 44,
+            .bottom = filmstrip.strip_h,
             .facts = s.info_open,
         }), drag);
         const zoom = shown.zoom;
@@ -384,8 +387,10 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             ui.spacer(c);
         }
         const fs = barButton(c, "arrow.up.left.and.arrow.down.right", if (s.fullscreen) tr.exit_fullscreen else tr.fullscreen, s.fullscreen);
+        if (fs.rect) |r| s.large_fullscreen_at = r;
         if (fs.clicked) fullscreen.toggle(s, c);
         const info = barButton(c, "info.circle", tr.info, s.info_open);
+        if (info.rect) |r| s.large_info_at = r;
         if (info.clicked) s.info_open = !s.info_open;
         const shut = barButton(c, "xmark", tr.close_label, false);
         if (shut.rect) |r| s.large_close_at = r;

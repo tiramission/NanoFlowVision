@@ -55,7 +55,7 @@ const en_keys = [_]KeyGroup{
         .{ .keys = "I", .what = "Fold the facts" },
         .{ .keys = delete_key, .what = "Bin it, then the next" },
         .{ .keys = "Wheel / drag", .what = "Zoom / pan" },
-        .{ .keys = "LMB hold", .what = "Look at 1:1 under the pointer (drag to pan)" },
+        .{ .keys = "LMB hold", .what = "Look at 1:1, or drag (see Settings)" },
         .{ .keys = "RMB hold", .what = "Look at it fitted to the window" },
     } },
     .{ .title = "Sidebar", .rows = &.{
@@ -106,7 +106,7 @@ const zh_keys = [_]KeyGroup{
         .{ .keys = "I", .what = "收起信息" },
         .{ .keys = delete_key, .what = "回收站，然后下一张" },
         .{ .keys = "滚轮 / 拖动", .what = "缩放 / 平移" },
-        .{ .keys = "按住左键", .what = "在指针处看 1:1" },
+        .{ .keys = "按住左键", .what = "看 1:1 或只拖动（见设置）" },
         .{ .keys = "按住右键", .what = "看适应窗口的样子" },
     } },
     .{ .title = "导航栏", .rows = &.{

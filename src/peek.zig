@@ -49,6 +49,10 @@ pub fn mode(s: *app.State, c: *ui.Context, chrome: Chrome) ?app.ZoomMode {
     // The left button looks from the moment it goes down. A hand that then
     // moves drags the 1:1 picture, and the look lasts until the button is
     // let go -- the look is what the button is for.
+    // The reader may have said the left button is the drag's alone: then
+    // holding it changes nothing, and the size stays where the wheel left
+    // it.
+    if (s.hold == .drag) return null;
     if (c.input.down and !c.input.secondary_down) return .actual;
     return null;
 }

@@ -127,6 +127,9 @@ pub const State = struct {
     rename_field: ui.TextBuffer = .{},
     rename_open: bool = false,
     recursive: bool = false,
+    /// What a held left button does on the large view: a look at 1:1, or
+    /// the hand that moves the picture.
+    hold: config.Hold = .look,
     dark: bool = false,
     /// The folder being watched for changes.
     watcher: watch.Watcher = undefined,
@@ -185,6 +188,10 @@ pub const State = struct {
     search_clear_at: ui.Rect = .{},
     /// Where the large view's close chip was drawn.
     large_close_at: ui.Rect = .{},
+    /// Where the large view's own chips landed, for the tests that press
+    /// them.
+    large_fullscreen_at: ui.Rect = .{},
+    large_info_at: ui.Rect = .{},
     /// The star filter: 0 says everything, N says N stars and up. The
     /// folders walked form the way back and forward; `keys_open` says
     /// the keyboard's map is up.
@@ -434,6 +441,7 @@ pub const State = struct {
             .dim_unselected = s.dim_unselected,
             .rail_w = s.rail_w,
             .recursive = s.recursive,
+            .hold = s.hold,
             .lang = s.lang,
             .root = s.tree.path,
         };

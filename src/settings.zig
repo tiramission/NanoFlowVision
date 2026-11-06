@@ -72,6 +72,17 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         c.changed = true;
     }
 
+    // What the left button's hold is for in the large view: a look at 1:1,
+    // or the hand that moves the picture. They disagree, so it is chosen.
+    group(c, tr.hold_label, k.secondary);
+    const holds = [_][]const u8{ tr.hold_look, tr.hold_drag };
+    var hi: usize = @backingInt(s.hold);
+    if (ui.segmented(c, &holds, &hi)) {
+        s.hold = @fromBackingInt(@intCast(hi));
+        s.saveSettings();
+        c.changed = true;
+    }
+
     // How wide the navigation column is, and the way back to the default.
     group(c, tr.rail_width, k.secondary);
     {

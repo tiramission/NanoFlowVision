@@ -569,3 +569,23 @@ test "snapshot: the look at 1:1 under the pointer" {
     try std.testing.expectEqual(app.ZoomMode.actual, state.zoom_mode);
     try shots.shot(&t, "docs/redesign/shots/peek.png");
 }
+
+test "snapshot: the settings sheet, in Chinese, with the hold setting" {
+    try ensureDir();
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeShotFolder(gpa, "settings-zh", 12);
+    defer sample.deinit(gpa);
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    state.lang = .zh;
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 1280, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+    t.frame();
+    _ = t.shortcut(.{ .key = ',', .ctrl = true });
+    t.settle(0.4);
+    try std.testing.expect(t.containsText("大图按住左键"));
+    try shots.shot(&t, "docs/redesign/shots/settings-zh.png");
+}

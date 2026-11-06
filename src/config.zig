@@ -54,6 +54,27 @@ pub const Density = enum {
     }
 };
 
+/// What a held left button does in the large view.
+pub const Hold = enum {
+    /// 1:1 about the pointer, and the drag inside it.
+    look,
+    /// Only the drag: the size stays what the wheel left it.
+    drag,
+
+    pub fn nameOf(h: Hold) []const u8 {
+        return switch (h) {
+            .look => "look",
+            .drag => "drag",
+        };
+    }
+
+    pub fn fromName(name: []const u8) ?Hold {
+        if (std.mem.eql(u8, name, "look")) return .look;
+        if (std.mem.eql(u8, name, "drag")) return .drag;
+        return null;
+    }
+};
+
 pub const Settings = struct {
     /// Where the window sat. Null when it was centred by the system.
     x: ?f64 = null,
@@ -76,6 +97,10 @@ pub const Settings = struct {
     rail_w: f32 = 240,
     /// Whether the gallery takes the subfolders' pictures in.
     recursive: bool = false,
+    /// What a held left button does on the large view: a look at 1:1, or
+    /// the hand that moves the picture. Both are useful and they disagree,
+    /// so the reader says which the button is for.
+    hold: Hold = .look,
     /// The folder the tree was rooted at, opened again next time. Empty
     /// for the app's own choice of a starting folder.
     root: []const u8 = "",
@@ -129,6 +154,8 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, dir_path: []const u8) Settings {
             if (number(value)) |v| out.rail_w = @floatCast(v);
         } else if (std.mem.eql(u8, key, "recursive")) {
             out.recursive = std.mem.eql(u8, value, "1");
+        } else if (std.mem.eql(u8, key, "hold")) {
+            if (Hold.fromName(value)) |h| out.hold = h;
         } else if (std.mem.eql(u8, key, "maximized")) {
             out.maximized = std.mem.eql(u8, value, "1");
         } else if (std.mem.eql(u8, key, "root")) {
@@ -160,8 +187,8 @@ pub fn save(io: std.Io, dir_path: []const u8, s: Settings) void {
     var buf: [1024]u8 = undefined;
     var w = file.writer(io, &buf);
     w.interface.print(
-        "x = {d}\ny = {d}\nwidth = {d:.0}\nheight = {d:.0}\nappearance = {s}\ndensity = {s}\nreduce_motion = {d}\ndim_unselected = {d}\nrail_w = {d:.0}\nrecursive = {d}\nmaximized = {d}\nroot = {s}\nlang = {s}\n",
-        .{ s.x orelse -1, s.y orelse -1, s.width, s.height, @tagName(s.appearance), @tagName(s.density), @intFromBool(s.reduce_motion), @intFromBool(s.dim_unselected), s.rail_w, @intFromBool(s.recursive), @intFromBool(s.maximized), s.root, @tagName(s.lang) },
+        "x = {d}\ny = {d}\nwidth = {d:.0}\nheight = {d:.0}\nappearance = {s}\ndensity = {s}\nreduce_motion = {d}\ndim_unselected = {d}\nrail_w = {d:.0}\nrecursive = {d}\nhold = {s}\nmaximized = {d}\nroot = {s}\nlang = {s}\n",
+        .{ s.x orelse -1, s.y orelse -1, s.width, s.height, @tagName(s.appearance), @tagName(s.density), @intFromBool(s.reduce_motion), @intFromBool(s.dim_unselected), s.rail_w, @intFromBool(s.recursive), @tagName(s.hold), @intFromBool(s.maximized), s.root, @tagName(s.lang) },
     ) catch return;
     w.interface.flush() catch return;
 }
