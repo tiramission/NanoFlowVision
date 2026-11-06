@@ -19,6 +19,7 @@ const ops = @import("ops.zig");
 const theme = @import("theme.zig");
 const thumbs = @import("thumbs.zig");
 const i18n = @import("i18n.zig");
+const peek = @import("peek.zig");
 const xmp = @import("xmp.zig");
 
 /// Opens a picture large. Its own cache key keeps the big pixels from
@@ -122,53 +123,6 @@ fn save(s: *app.State, pic: *model.Picture, m: *const exif.Meta) void {
     s.shared.setMeta(pic.path, m.*);
 }
 
-/// How far the pointer may travel while a press is still a look. One
-/// point, the smallest movement a hand makes on purpose: a click that
-/// wobbles is a look, a press that is meant to drag leaves it at once.
-const peek_slop: f32 = 1.0;
-
-/// The button held down for a look, as the mode it shows: the left one
-/// at 1:1 about the pointer, the right one fitting the picture to the
-/// room. Null when neither is held, and when the pointer is not on the
-/// photograph -- a press on the top bar's stars is a press on a star, not
-/// a look.
-///
-/// Both buttons look from the moment they go down, in any mode, a
-/// wheel-zoomed one included: the question is how the picture looks at its
-/// own pixels or fitted, and that does not depend on where the wheel left
-/// it. Waiting for the press to prove itself still made the left button
-/// feel unlike the right one -- and it needed frames to keep arriving, so
-/// a press held without moving waited for the next mouse movement instead
-/// of its own delay. The look begins at once; a press that turns out to be
-/// a drag ends it and takes over, which is a thing the hand decides, not
-/// a clock.
-fn peekMode(s: *app.State, c: *ui.Context) ?app.ZoomMode {
-    // A look already begun keeps itself, wherever the picture moved to:
-    // the pointer was on the photograph when the press started, and asking
-    // again would end it the moment a 1:1 picture shrank from under the
-    // hand.
-    if (s.peek) |held| {
-        // A look lasts until the button is let go, a drag included: at 1:1
-        // the picture is bigger than the room in most cases, and moving it
-        // under the hand is what the held button is for.
-        return switch (held.mode) {
-            .actual => if (c.input.down and !c.input.secondary_down) .actual else null,
-            .fit => if (c.input.secondary_down) .fit else null,
-            else => null,
-        };
-    }
-    const at = s.large_at;
-    if (at.w <= 0 or at.h <= 0) return null;
-    const m = c.input.mouse;
-    if (m.x < at.x or m.x >= at.x + at.w or m.y < at.y or m.y >= at.y + at.h) return null;
-    if (c.input.secondary_down) return .fit;
-    // The left button looks from the moment it goes down. A hand that then
-    // moves drags the 1:1 picture, and the look lasts until the button is
-    // let go -- the look is what the button is for.
-    if (c.input.down and !c.input.secondary_down) return .actual;
-    return null;
-}
-
 /// The picture, large, over a dark room.
 pub fn view(s: *app.State, c: *ui.Context) void {
     const k = theme.colors(s.dark);
@@ -181,6 +135,13 @@ pub fn view(s: *app.State, c: *ui.Context) void {
     const chrome_alpha = fullscreen.chromeOpacity(s);
     // The wheel zooms here: nothing in this view scrolls.
     c.wants_wheel = true;
+    // A look is let go of here, before anything can return early: the
+    // A look is let go of here, before anything can return early: the
+    // release belongs to the button, not to whether the picture is ready
+    // to be drawn. Leaving it to `zoom.step` meant a frame that could not
+    // draw the picture also kept the look, and the next press found one
+    // already held.
+    if (s.peek != null and !c.input.down and !c.input.secondary_down) zoom_mod.release(s);
     if (c.shortcut(.{ .key = ui.Shortcut.escape })) {
         // While a tag is being typed, Esc ends the typing first.
         if (s.tag_editing) {
@@ -293,7 +254,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
         }
         // The press's state, read before the frame is built: a press that
         // The press's movement, read before the frame is built: the drag
-        // has to reach `step` this frame, not the next one. `peek_slop`
+        // has to reach `step` this frame, not the next one. `peek.slop`
         // keeps a click that wobbles from being read as a drag.
         var drag: ?ui.Point = null;
         if (c.input.down and !c.input.secondary_down) {
@@ -301,7 +262,7 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             if (s.panning) {
                 const dx = c.input.mouse.x - s.last_mouse_x;
                 const dy = c.input.mouse.y - s.last_mouse_y;
-                if (@abs(dx) > peek_slop or @abs(dy) > peek_slop) s.drag_started = true;
+                if (@abs(dx) > peek.slop or @abs(dy) > peek.slop) s.drag_started = true;
                 if (s.drag_started) drag = .{ .x = dx, .y = dy };
             }
             s.panning = true;
@@ -319,7 +280,12 @@ pub fn view(s: *app.State, c: *ui.Context) void {
             .img_h = img_h,
             .fit = fit,
             .cover = cover,
-        }, wheel, zoom_toggle, fill_toggle, peekMode(s, c), drag);
+        }, wheel, zoom_toggle, fill_toggle, peek.mode(s, c, .{
+            .bars = chrome_live,
+            .top = top_room,
+            .bottom = bottom_room,
+            .facts = s.info_open,
+        }), drag);
         const zoom = shown.zoom;
         const w = img_w * zoom;
         const h = img_h * zoom;

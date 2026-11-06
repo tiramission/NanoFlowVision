@@ -66,15 +66,7 @@ pub fn step(s: *app.State, c: *ui.Context, room: Room, wheel: f32, toggle_fit: b
             }
         }
     } else if (s.peek != null) {
-        const was = s.peek.?;
-        s.peek = null;
-        s.zoom_mode = was.before;
-        s.zoom = was.zoom;
-        s.zoom_target = was.zoom_target;
-        s.anchor = was.anchor;
-        s.anchor_mouse = was.anchor_mouse;
-        s.pan_tx = was.pan_x;
-        s.pan_ty = was.pan_y;
+        release(s);
     }
 
     // The mode says what the zoom is trying to be; "fill" follows the
@@ -206,6 +198,22 @@ fn centre(s: *app.State, c: *ui.Context, room: Room) void {
     s.anchor_mouse = .{ .x = c.size.w / 2, .y = room.top + room.h / 2 };
     s.pan_tx = 0;
     s.pan_ty = 0;
+}
+
+/// Lets the look go: the frame from before the press comes back -- mode,
+/// zoom, the wheel's target, the anchor, the pan. The large view calls this
+/// the moment both buttons are up, before anything can return early, so a
+/// frame that cannot draw the picture does not also keep the look.
+pub fn release(s: *app.State) void {
+    const was = s.peek orelse return;
+    s.peek = null;
+    s.zoom_mode = was.before;
+    s.zoom = was.zoom;
+    s.zoom_target = was.zoom_target;
+    s.anchor = was.anchor;
+    s.anchor_mouse = was.anchor_mouse;
+    s.pan_tx = was.pan_x;
+    s.pan_ty = was.pan_y;
 }
 
 /// The reader took hold of the picture and moved it: the pan is now the

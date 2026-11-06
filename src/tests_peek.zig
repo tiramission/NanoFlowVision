@@ -44,8 +44,11 @@ test "holding the left button looks at 1:1, and letting go puts it back" {
     // Hold the left button on the picture: 1:1, and the point under the
     // pointer stays under it.
     const at = state.large_at;
-    const px = at.x + at.w * 0.3;
-    const py = at.y + at.h * 0.7;
+    // The middle of the picture: this one is tiny at the fit, and a point
+    // three tenths across it is outside it -- which is the case that used
+    // to fail.
+    const px = at.x + at.w / 2;
+    const py = at.y + at.h / 2;
     t.moveTo(px, py);
     t.ctx.input.button = .left;
     t.ctx.pointerDown();
@@ -324,4 +327,152 @@ test "the look at 1:1 can be dragged while the button is held" {
     t.frame();
     try std.testing.expect(state.peek == null);
     try std.testing.expectEqual(app.ZoomMode.fit, state.zoom_mode);
+}
+
+test "a picture above 100% takes the look at 100% as well" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeBigSample(gpa, 2);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 900, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+
+    t.key(.down);
+    t.settle(0.1);
+    t.typeText(" ");
+    t.settle(0.2);
+    const key = try thumbs.largeKey(gpa, state.large.?.path);
+    defer gpa.free(key);
+    for (0..400) |_| {
+        t.frame();
+        if (state.shared.get(key)) |known| {
+            if (known.thumb != null) break;
+        }
+        std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake) catch {};
+    }
+    t.settle(0.2);
+    t.frame();
+
+    const at = state.large_at;
+    const cx = at.x + at.w / 2;
+    const cy = at.y + at.h / 2;
+    t.scroll(cx, cy, 600);
+    t.settle(0.8);
+    t.frame();
+    try std.testing.expect(state.zoom > 1.0);
+    const above = state.zoom;
+
+    t.moveTo(cx, cy);
+    t.ctx.input.button = .left;
+    t.ctx.pointerDown();
+    t.frame();
+    try std.testing.expect(state.peek != null);
+    try std.testing.expectEqual(app.ZoomMode.actual, state.zoom_mode);
+    t.settle(1.2);
+    t.frame();
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), state.zoom, 0.02);
+
+    t.ctx.pointerUp();
+    t.ctx.input.button = .left;
+    t.frame();
+    t.settle(1.2);
+    t.frame();
+    try std.testing.expectApproxEqAbs(above, state.zoom, 0.05);
+}
+
+
+test "the look does not need the press to land on a pixel" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 2);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 900, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+
+    t.key(.down);
+    t.settle(0.1);
+    t.typeText(" ");
+    t.settle(0.2);
+    const key = try thumbs.largeKey(gpa, state.large.?.path);
+    defer gpa.free(key);
+    for (0..400) |_| {
+        t.frame();
+        if (state.shared.get(key)) |known| {
+            if (known.thumb != null) break;
+        }
+        std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake) catch {};
+    }
+    t.settle(0.2);
+    t.frame();
+
+    // The test picture is 2x2, so the fit is a tiny square in the middle of
+    // a large empty room. The pointer goes into that room, well off the
+    // picture: the room is part of the view, and a reader who has just
+    // wheeled a photograph down to its own size often has the pointer
+    // beside it rather than on it.
+    const at = state.large_at;
+    // Beside it, at its own height: inside the room, off the picture.
+    const px = at.x - 120;
+    const py = at.y + at.h / 2;
+    t.moveTo(px, py);
+    t.ctx.input.button = .left;
+    t.ctx.pointerDown();
+    t.frame();
+    try std.testing.expect(state.peek != null);
+    try std.testing.expectEqual(app.ZoomMode.actual, state.zoom_mode);
+
+    t.ctx.pointerUp();
+    t.ctx.input.button = .left;
+    t.frame();
+    try std.testing.expect(state.peek == null);
+}
+
+test "a press on the top bar is a press on a star, not a look" {
+    const gpa = std.testing.allocator;
+    var sample = try tests_mod.makeSampleWith(gpa, 2);
+    defer sample.deinit(gpa);
+
+    const state = try app.State.create(gpa, std.testing.io, sample.path);
+    defer state.deinit();
+    var t: ui.Tester = undefined;
+    try tests_mod.initTester(&t, gpa, state, 900, 800);
+    defer t.deinit();
+    try tests_mod.waitForLayout(&t, state);
+    try tests_mod.waitForThumbs(&t, state);
+
+    t.key(.down);
+    t.settle(0.1);
+    t.typeText(" ");
+    t.settle(0.2);
+    const key = try thumbs.largeKey(gpa, state.large.?.path);
+    defer gpa.free(key);
+    for (0..400) |_| {
+        t.frame();
+        if (state.shared.get(key)) |known| {
+            if (known.thumb != null) break;
+        }
+        std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake) catch {};
+    }
+    t.settle(0.2);
+    t.frame();
+
+    // On the bar's stars: the press belongs to a star.
+    t.moveTo(400, 22);
+    t.ctx.input.button = .left;
+    t.ctx.pointerDown();
+    t.frame();
+    try std.testing.expect(state.peek == null);
+    t.ctx.pointerUp();
+    t.ctx.input.button = .left;
+    t.frame();
 }
